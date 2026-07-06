@@ -24,7 +24,27 @@ make
 If `make` is not installed:
 
 ```bash
-g++ -std=c++17 -Wall -Wextra -O2 -o dnsrelay dnsrelay.cpp
+g++ -std=c++17 -Wall -Wextra -O2 -Iinclude -o dnsrelay src/*.cpp
+```
+
+## Project layout
+
+```text
+include/
+  config.h          command-line configuration
+  dns_protocol.h    DNS constants, parsing, response building, cache TTL helpers
+  local_db.h        local database records and matching
+  relay.h           relay runtime and statistics
+  utils.h           small string, time, socket formatting helpers
+src/
+  main.cpp          program entry
+  config.cpp        argument parsing
+  dns_protocol.cpp  DNS wire-format logic
+  local_db.cpp      dnsrelay.txt parser and wildcard matching
+  relay.cpp         UDP relay loop, forwarding, cache, logging
+Makefile
+dnsrelay.txt
+README_WSL.md
 ```
 
 ## Run
@@ -50,6 +70,38 @@ For quick testing without `sudo`, listen on a high port:
 
 The program writes query logs and final statistics to `dnsrelay.log` by default.
 Use `--no-log` to disable logging.
+
+## Local database format
+
+`dnsrelay.txt` supports the original two-column coursework format:
+
+```text
+IPv4-or-IPv6-address domain-pattern
+```
+
+Examples:
+
+```text
+0.0.0.0 www.666.com
+114.255.40.66 www.bupt.com.cn
+10.10.10.10 *.demo.test
+2001:db8::10 host6.demo.test
+```
+
+It also supports an RR-like format that is easier to extend:
+
+```text
+domain-pattern [ttl] [IN] A|AAAA address
+```
+
+Examples:
+
+```text
+www.example.test 120 IN A 10.10.10.20
+host6.demo.test 60 IN AAAA 2001:db8::10
+```
+
+`0.0.0.0` keeps its special meaning: block the domain and return `NXDOMAIN`.
 
 ## Test
 
@@ -89,12 +141,14 @@ Test wildcard matching:
 ```bash
 dig @127.0.0.1 -p 1053 ads.bad.test A
 dig @127.0.0.1 -p 1053 host.demo.test A
+dig @127.0.0.1 -p 1053 host6.demo.test AAAA
 ```
 
 Expected behavior:
 
 - `ads.bad.test` matches `0.0.0.0 *.bad.test`, so it returns `NXDOMAIN`.
 - `host.demo.test` matches `10.10.10.10 *.demo.test`, so it returns `A 10.10.10.10`.
+- `host6.demo.test` matches the local `AAAA` record and returns `2001:db8::10`.
 
 Test cache by querying the same forwarded domain twice:
 

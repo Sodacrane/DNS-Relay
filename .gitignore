@@ -1,0 +1,4 @@
+dnsrelay
+*.o
+*.log
+*.pcap

@@ -3,8 +3,10 @@
 # Extension test records:
 # *.bad.test will be blocked as NXDOMAIN.
 # *.demo.test will return 10.10.10.10.
+# host6.demo.test uses the extended RR-like format for AAAA.
 0.0.0.0 *.bad.test
 10.10.10.10 *.demo.test
+host6.demo.test 60 IN AAAA 2001:db8::10
 
 
  
