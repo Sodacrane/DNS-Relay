@@ -1,0 +1,160 @@
+# DNS Relay for WSL
+
+This is the Linux/WSL version of the DNS Relay coursework program.
+
+Enter the code directory first:
+
+```bash
+cd "/mnt/c/Users/32741/Downloads/to students 2026/to students/code"
+```
+
+## Build
+
+Install the compiler tools first if this is a fresh WSL system:
+
+```bash
+sudo apt update
+sudo apt install build-essential
+```
+
+```bash
+make
+```
+
+If `make` is not installed:
+
+```bash
+g++ -std=c++17 -Wall -Wextra -O2 -o dnsrelay dnsrelay.cpp
+```
+
+## Run
+
+The command format remains compatible with the teacher's PPT. This version also
+adds `-p` for WSL testing and `-l` for the log file:
+
+```bash
+dnsrelay [-d|-dd] [-p listen-port] [-l log-file] [dns-server-ipaddr] [filename]
+```
+
+On Linux/WSL, listening on UDP port 53 usually requires root permission:
+
+```bash
+sudo ./dnsrelay -d 114.114.114.114 dnsrelay.txt
+```
+
+For quick testing without `sudo`, listen on a high port:
+
+```bash
+./dnsrelay -dd -p 1053 114.114.114.114 dnsrelay.txt
+```
+
+The program writes query logs and final statistics to `dnsrelay.log` by default.
+Use `--no-log` to disable logging.
+
+## Test
+
+Install `dig` if needed:
+
+```bash
+sudo apt update
+sudo apt install dnsutils
+```
+
+Test the three required cases:
+
+```bash
+dig @127.0.0.1 -p 1053 www.666.com A
+dig @127.0.0.1 -p 1053 www.bupt.com.cn A
+dig @127.0.0.1 -p 1053 www.baidu.com A
+```
+
+Expected behavior:
+
+- `www.666.com` is in `dnsrelay.txt` with `0.0.0.0`, so the relay returns `NXDOMAIN` (`RCODE=3`).
+- `www.bupt.com.cn` is in `dnsrelay.txt`, so the relay returns `114.255.40.66` directly.
+- Other domains are forwarded to the upstream DNS server.
+
+To make the system use the relay as DNS, run it on port 53 and configure DNS to `127.0.0.1`.
+
+## Extension tests
+
+This version adds three extension features that are useful for the report:
+
+- DNS cache: forwarded responses are cached according to the response TTL.
+- Wildcard blocking/answering: `dnsrelay.txt` supports entries such as `*.bad.test`.
+- Query logs and statistics: each query is written to `dnsrelay.log`; summary statistics print when the program exits.
+
+Test wildcard matching:
+
+```bash
+dig @127.0.0.1 -p 1053 ads.bad.test A
+dig @127.0.0.1 -p 1053 host.demo.test A
+```
+
+Expected behavior:
+
+- `ads.bad.test` matches `0.0.0.0 *.bad.test`, so it returns `NXDOMAIN`.
+- `host.demo.test` matches `10.10.10.10 *.demo.test`, so it returns `A 10.10.10.10`.
+
+Test cache by querying the same forwarded domain twice:
+
+```bash
+dig @127.0.0.1 -p 1053 www.baidu.com A
+dig @127.0.0.1 -p 1053 www.baidu.com A
+```
+
+In the relay terminal or `dnsrelay.log`, the first query should show `FORWARD`
+and `CACHE_STORE`; the second should show `CACHE_HIT`. In Wireshark, the second
+query should not create another packet from the relay to the upstream DNS server.
+
+View logs:
+
+```bash
+tail -f dnsrelay.log
+```
+
+## Wireshark capture
+
+For the report, capture the DNS packets and show the three required cases.
+The most reliable WSL method is to capture a `.pcap` file in WSL, then open it
+with Wireshark on Windows.
+
+Terminal 1, start the relay:
+
+```bash
+./dnsrelay -dd -p 1053 114.114.114.114 dnsrelay.txt
+```
+
+Terminal 2, capture loopback packets:
+
+```bash
+sudo tcpdump -i lo -w dnsrelay-test.pcap udp port 1053
+```
+
+Terminal 3, run tests:
+
+```bash
+dig @127.0.0.1 -p 1053 www.666.com A
+dig @127.0.0.1 -p 1053 www.bupt.com.cn A
+dig @127.0.0.1 -p 1053 www.baidu.com A
+```
+
+Stop `tcpdump` with `Ctrl+C`, then open `dnsrelay-test.pcap` in Wireshark.
+Use this display filter:
+
+```text
+dns || udp.port == 1053
+```
+
+If you also want to show forwarding to the upstream DNS server, capture all DNS
+traffic instead:
+
+```bash
+sudo tcpdump -i any -w dnsrelay-forward.pcap 'udp port 53 or udp port 1053'
+```
+
+In Wireshark, good screenshots for the report are:
+
+- `www.666.com`: response code is `No such name` / `NXDOMAIN`.
+- `www.bupt.com.cn`: answer record is `A 114.255.40.66`.
+- `www.baidu.com`: the relay receives the client query on port `1053`, then forwards a DNS query to upstream port `53`, and finally sends the response back to the client.

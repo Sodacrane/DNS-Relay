@@ -1,0 +1,10 @@
+0.0.0.0 www.666.com
+114.255.40.66 www.bupt.com.cn
+# Extension test records:
+# *.bad.test will be blocked as NXDOMAIN.
+# *.demo.test will return 10.10.10.10.
+0.0.0.0 *.bad.test
+10.10.10.10 *.demo.test
+
+
+ 
