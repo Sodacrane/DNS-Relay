@@ -27,21 +27,42 @@ If `make` is not installed:
 g++ -std=c++17 -Wall -Wextra -O2 -Iinclude -o dnsrelay src/*.cpp
 ```
 
+Runtime output files are kept out of the project root:
+
+```text
+logs/dnsrelay.log
+pcaps/*.pcap
+```
+
+Create the capture directory once before using `tcpdump`:
+
+```bash
+mkdir -p logs pcaps
+```
+
 ## Project layout
 
 ```text
 include/
+  cache.h           DNS response cache interface
   config.h          command-line configuration
   dns_protocol.h    DNS constants, parsing, response building, cache TTL helpers
+  forward_table.h   forwarded query ID mapping and timeout cleanup
   local_db.h        local database records and matching
   relay.h           relay runtime and statistics
+  relay_handlers.h  client/upstream packet handlers
+  udp_socket.h      UDP socket creation helpers
   utils.h           small string, time, socket formatting helpers
 src/
   main.cpp          program entry
+  cache.cpp         in-memory cache with TTL refresh
   config.cpp        argument parsing
   dns_protocol.cpp  DNS wire-format logic
+  forward_table.cpp forwarded query table
   local_db.cpp      dnsrelay.txt parser and wildcard matching
-  relay.cpp         UDP relay loop, forwarding, cache, logging
+  relay.cpp         relay startup, select loop, shutdown statistics
+  relay_handlers.cpp client query and upstream response processing
+  udp_socket.cpp    UDP bind/socket helpers
 Makefile
 dnsrelay.txt
 README_WSL.md
@@ -68,7 +89,7 @@ For quick testing without `sudo`, listen on a high port:
 ./dnsrelay -dd -p 1053 114.114.114.114 dnsrelay.txt
 ```
 
-The program writes query logs and final statistics to `dnsrelay.log` by default.
+The program writes query logs and final statistics to `logs/dnsrelay.log` by default.
 Use `--no-log` to disable logging.
 
 ## Local database format
@@ -134,7 +155,7 @@ This version adds three extension features that are useful for the report:
 
 - DNS cache: forwarded responses are cached according to the response TTL.
 - Wildcard blocking/answering: `dnsrelay.txt` supports entries such as `*.bad.test`.
-- Query logs and statistics: each query is written to `dnsrelay.log`; summary statistics print when the program exits.
+- Query logs and statistics: each query is written to `logs/dnsrelay.log`; summary statistics print when the program exits.
 
 Test wildcard matching:
 
@@ -157,14 +178,14 @@ dig @127.0.0.1 -p 1053 www.baidu.com A
 dig @127.0.0.1 -p 1053 www.baidu.com A
 ```
 
-In the relay terminal or `dnsrelay.log`, the first query should show `FORWARD`
+In the relay terminal or `logs/dnsrelay.log`, the first query should show `FORWARD`
 and `CACHE_STORE`; the second should show `CACHE_HIT`. In Wireshark, the second
 query should not create another packet from the relay to the upstream DNS server.
 
 View logs:
 
 ```bash
-tail -f dnsrelay.log
+tail -f logs/dnsrelay.log
 ```
 
 ## Wireshark capture
@@ -182,7 +203,8 @@ Terminal 1, start the relay:
 Terminal 2, capture loopback packets:
 
 ```bash
-sudo tcpdump -i lo -w dnsrelay-test.pcap udp port 1053
+mkdir -p pcaps
+sudo tcpdump -i lo -w pcaps/dnsrelay-test.pcap udp port 1053
 ```
 
 Terminal 3, run tests:
@@ -193,7 +215,7 @@ dig @127.0.0.1 -p 1053 www.bupt.com.cn A
 dig @127.0.0.1 -p 1053 www.baidu.com A
 ```
 
-Stop `tcpdump` with `Ctrl+C`, then open `dnsrelay-test.pcap` in Wireshark.
+Stop `tcpdump` with `Ctrl+C`, then open `pcaps/dnsrelay-test.pcap` in Wireshark.
 Use this display filter:
 
 ```text
@@ -204,7 +226,8 @@ If you also want to show forwarding to the upstream DNS server, capture all DNS
 traffic instead:
 
 ```bash
-sudo tcpdump -i any -w dnsrelay-forward.pcap 'udp port 53 or udp port 1053'
+mkdir -p pcaps
+sudo tcpdump -i any -w pcaps/dnsrelay-forward.pcap 'udp port 53 or udp port 1053'
 ```
 
 In Wireshark, good screenshots for the report are:

@@ -1,4 +1,4 @@
 dnsrelay
 *.o
-*.log
-*.pcap
+logs/*.log
+pcaps/*.pcap

@@ -11,7 +11,7 @@ struct Config {
     int debug = 0;
     std::string upstream_ip = "114.114.114.114";
     std::string hosts_file = "dnsrelay.txt";
-    std::string log_file = "dnsrelay.log";
+    std::string log_file = "logs/dnsrelay.log";
     uint16_t listen_port = DNS_PORT;
     bool logging = true;
 };
