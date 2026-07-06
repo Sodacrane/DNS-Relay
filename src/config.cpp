@@ -11,7 +11,7 @@ namespace dnsrelay {
 
 void print_usage(const char *program) {
     std::cerr
-        << "Usage: " << program << " [-d|-dd] [-p listen-port] [-l log-file] [dns-server-ipaddr] [filename]\n"
+        << "Usage: " << program << " [-d|-dd] [-p listen-port] [-l log-file] [--cache-file file] [--no-cache-file] [--stats-file file] [--no-stats] [dns-server-ipaddr] [filename]\n"
         << "Example for normal DNS port: sudo " << program << " -d 114.114.114.114 dnsrelay.txt\n"
         << "Example for WSL test port:   " << program << " -dd -p 1053 114.114.114.114 dnsrelay.txt\n";
 }
@@ -49,8 +49,34 @@ bool parse_args(int argc, char **argv, Config &cfg) {
             cfg.logging = true;
             continue;
         }
+        if (arg == "--cache-file") {
+            if (i + 1 >= argc) {
+                std::cerr << "Missing cache file name.\n";
+                return false;
+            }
+            cfg.cache_file = argv[++i];
+            cfg.persistent_cache = true;
+            continue;
+        }
+        if (arg == "--stats-file") {
+            if (i + 1 >= argc) {
+                std::cerr << "Missing stats file name.\n";
+                return false;
+            }
+            cfg.stats_file = argv[++i];
+            cfg.stats_report = true;
+            continue;
+        }
         if (arg == "--no-log") {
             cfg.logging = false;
+            continue;
+        }
+        if (arg == "--no-cache-file") {
+            cfg.persistent_cache = false;
+            continue;
+        }
+        if (arg == "--no-stats") {
+            cfg.stats_report = false;
             continue;
         }
         positional.push_back(arg);

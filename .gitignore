@@ -1,4 +1,6 @@
 dnsrelay
 *.o
-*.log
-*.pcap
+logs/*.log
+pcaps/*.pcap
+cache/*.cache
+stats/*.html
