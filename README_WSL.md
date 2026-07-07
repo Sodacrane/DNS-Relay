@@ -21,6 +21,9 @@ sudo apt install build-essential
 make
 ```
 
+Object files and dependency files are generated under `build/`, so `src/`
+contains source `.cpp` files only.
+
 If `make` is not installed:
 
 ```bash
@@ -53,8 +56,9 @@ include/
   local_db.h        local database records and matching
   relay.h           relay runtime and statistics
   relay_handlers.h  client/upstream packet handlers
+  shared_state.h    shared state and mutex-protected runtime data
   stats_report.h    HTML statistics dashboard generator
-
+  thread_pool.h     fixed worker thread pool
   udp_socket.h      UDP socket creation helpers
   utils.h           small string, time, socket formatting helpers
 src/
@@ -66,9 +70,11 @@ src/
   local_db.cpp      dnsrelay.txt parser and wildcard matching
   relay.cpp         relay startup, select loop, shutdown statistics
   relay_handlers.cpp client query and upstream response processing
+  shared_state.cpp  thread-safe log/stat/cache/pending helpers
   stats_report.cpp  writes stats/dashboard.html
-
+  thread_pool.cpp   worker queue and worker threads
   udp_socket.cpp    UDP bind/socket helpers
+build/              generated object/dependency files, ignored by git
 Makefile
 dnsrelay.txt
 README_WSL.md
@@ -78,14 +84,15 @@ README_WSL.md
 
 The command format remains compatible with the teacher's PPT. This version also
 adds `-p` for WSL testing, `-l` for the log file, `--cache-file` for the persistent cache,
-cache TTL/capacity options, and `--stats-file` for the visual statistics dashboard:
+cache TTL/capacity options, `--stats-file` for the visual statistics dashboard,
+and `--threads` for concurrent client query processing:
 
 ```bash
 dnsrelay [-d|-dd] [-p listen-port] [-l log-file]
          [--cache-file file] [--no-cache-file]
          [--cache-min-ttl seconds] [--cache-max-ttl seconds]
          [--cache-capacity entries]
-         [--stats-file file] [--no-stats]
+         [--stats-file file] [--no-stats] [--threads count]
          [dns-server-ipaddr] [filename]
 ```
 
@@ -100,6 +107,17 @@ For quick testing without `sudo`, listen on a high port:
 ```bash
 ./dnsrelay -dd -p 1053 114.114.114.114 dnsrelay.txt
 ```
+
+Use a fixed worker thread pool for concurrent client query processing:
+
+```bash
+./dnsrelay -dd -p 1053 --threads 4 114.114.114.114 dnsrelay.txt
+```
+
+The main thread receives UDP packets and upstream responses. Client query
+processing is submitted to the worker pool. Shared runtime data such as the
+cache, forwarding table, statistics, log file, and hot-reloaded local database
+are protected by mutexes or shared locks.
 
 The program writes query logs and final statistics to `logs/dnsrelay.log` by default.
 Use `--no-log` to disable logging.
@@ -198,6 +216,7 @@ This version adds several extension features that are useful for the report:
 - Wildcard blocking/answering: `dnsrelay.txt` supports entries such as `*.bad.test`.
 - Query logs and statistics: each query is written to `logs/dnsrelay.log`; summary statistics print when the program exits.
 - Visual statistics dashboard: request counters and bar charts are written to `stats/dashboard.html`.
+- Thread pool concurrency: client DNS queries are processed by a fixed worker pool configured with `--threads`.
 
 
 Test wildcard matching:
@@ -243,6 +262,24 @@ grep "CACHE_STORE" logs/dnsrelay.log | tail
 The log shows both `upstream_ttl` and the clamped `cache_ttl`. With capacity 2,
 the third forwarded domain forces one older unused cache entry to be evicted,
 which is logged as `CACHE_EVICT` and counted as `cache_evictions`.
+
+Test thread pool concurrency by starting with multiple workers:
+
+```bash
+./dnsrelay -dd -p 1053 --threads 4 114.114.114.114 dnsrelay.txt
+```
+
+Then run several queries at the same time from another terminal:
+
+```bash
+for name in www.baidu.com www.cloudflare.com www.qq.com www.github.com host.demo.test ads.bad.test; do
+  dig @127.0.0.1 -p 1053 "$name" A +short &
+done
+wait
+```
+
+The relay terminal should show interleaved query handling while the dashboard
+and final statistics continue to count all request types.
 
 View logs:
 

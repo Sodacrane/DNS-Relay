@@ -14,7 +14,8 @@ void print_usage(const char *program) {
         << "Usage: " << program << " [-d|-dd] [-p listen-port] [-l log-file]\n"
         << "       [--cache-file file] [--no-cache-file] [--cache-min-ttl seconds]\n"
         << "       [--cache-max-ttl seconds] [--cache-capacity entries]\n"
-        << "       [--stats-file file] [--no-stats] [dns-server-ipaddr] [filename]\n"
+        << "       [--stats-file file] [--no-stats] [--threads count]\n"
+        << "       [dns-server-ipaddr] [filename]\n"
         << "Example for normal DNS port: sudo " << program << " -d 114.114.114.114 dnsrelay.txt\n"
         << "Example for WSL test port:   " << program << " -dd -p 1053 114.114.114.114 dnsrelay.txt\n"
         << "Example with cache tuning:   " << program << " -dd -p 1053 --cache-min-ttl 30 --cache-max-ttl 600 --cache-capacity 1024 114.114.114.114 dnsrelay.txt\n";
@@ -92,6 +93,15 @@ bool parse_args(int argc, char **argv, Config &cfg) {
             }
             cfg.stats_file = argv[++i];
             cfg.stats_report = true;
+            continue;
+        }
+        if (arg == "--threads") {
+            uint32_t threads = 0;
+            if (i + 1 >= argc || !parse_u32(argv[++i], threads) || threads == 0 || threads > 128) {
+                std::cerr << "Invalid thread count. Use a value from 1 to 128.\n";
+                return false;
+            }
+            cfg.thread_count = threads;
             continue;
         }
         if (arg == "--no-log") {

@@ -181,6 +181,7 @@ bool write_stats_report(const Stats &stats, const StatsReportInfo &info) {
         << "<aside class=\"panel\"><h2>Runtime</h2>\n"
         << "<dl class=\"kv\">"
         << "<dt>Listen port</dt><dd>" << info.config.listen_port << "</dd>"
+        << "<dt>Worker threads</dt><dd>" << info.config.thread_count << "</dd>"
         << "<dt>Upstream</dt><dd>" << html_escape(info.config.upstream_ip) << "</dd>"
         << "<dt>Hosts file</dt><dd>" << html_escape(info.config.hosts_file) << "</dd>"
         << "<dt>Log file</dt><dd>" << (info.config.logging ? html_escape(info.config.log_file) : "disabled") << "</dd>"

@@ -1,5 +1,7 @@
 dnsrelay
+build/
 *.o
+*.d
 logs/*.log
 pcaps/*.pcap
 cache/*.cache
