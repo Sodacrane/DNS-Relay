@@ -5,6 +5,8 @@
 #include "forward_table.h"
 #include "local_db.h"
 #include "relay_handlers.h"
+#include "stats_report.h"
+
 #include "udp_socket.h"
 #include "utils.h"
 
@@ -19,11 +21,13 @@
 #include <fstream>
 #include <iostream>
 #include <optional>
+
 #include <sstream>
 #include <stdexcept>
 #include <string>
 #include <system_error>
 #include <utility>
+
 
 #include <netinet/in.h>
 #include <sys/select.h>
@@ -159,7 +163,8 @@ int run_relay(const Config &cfg) {
         } else {
             write_log(log, "START upstream=" + cfg.upstream_ip +
                               " port=" + std::to_string(cfg.listen_port) +
-                              " hosts=" + cfg.hosts_file);
+                              " hosts=" + cfg.hosts_file +
+                              " cache=" + (cfg.persistent_cache ? cfg.cache_file : "disabled"));
         }
     }
 
@@ -189,12 +194,43 @@ int run_relay(const Config &cfg) {
     log_local_hosts(local_records, cfg.debug);
 
     ForwardTable pending(FORWARD_TIMEOUT_SECONDS);
-    ResponseCache cache;
+    ResponseCache cache(cfg.cache_file, cfg.persistent_cache);
+    const std::size_t loaded_cache_entries = cache.load();
     Stats stats;
+    bool stats_report_warning_printed = false;
+
+    auto make_stats_info = [&]() {
+        StatsReportInfo info;
+        info.config = cfg;
+        info.cache_entries = cache.size();
+        info.pending_queries = pending.size();
+        return info;
+    };
+
+    auto refresh_stats_report = [&]() {
+        if (!write_stats_report(stats, make_stats_info()) && !stats_report_warning_printed) {
+            std::cerr << "Warning: cannot write stats report " << cfg.stats_file << "\n";
+            stats_report_warning_printed = true;
+        }
+    };
+
+    if (cfg.persistent_cache) {
+        std::cout << "Loaded " << loaded_cache_entries
+                  << " unexpired cache entries from " << cfg.cache_file << "\n";
+        write_log(log, "CACHE_LOAD file=" + cfg.cache_file +
+                       " entries=" + std::to_string(loaded_cache_entries));
+    }
+    if (cfg.stats_report) {
+        std::cout << "Stats dashboard: " << cfg.stats_file << "\n";
+    }
+    refresh_stats_report();
+
     auto next_hosts_reload_check = std::chrono::steady_clock::now() + std::chrono::seconds(1);
 
     while (g_running) {
         const auto expired = pending.cleanup_expired();
+        bool stats_changed = !expired.empty();
+
         if (!expired.empty()) {
             stats.timeouts += expired.size();
             for (const auto &item : expired) {
@@ -231,6 +267,9 @@ int run_relay(const Config &cfg) {
         }
 
         if (ready == 0) {
+            if (stats_changed) {
+                refresh_stats_report();
+            }
             continue;
         }
 
@@ -244,6 +283,8 @@ int run_relay(const Config &cfg) {
                                  pending,
                                  stats,
                                  log);
+            stats_changed = true;
+
         }
 
         if (FD_ISSET(upstream_sock, &readfds)) {
@@ -254,6 +295,12 @@ int run_relay(const Config &cfg) {
                                    pending,
                                    stats,
                                    log);
+            stats_changed = true;
+        }
+
+        if (stats_changed) {
+            refresh_stats_report();
+
         }
     }
 
@@ -266,6 +313,8 @@ int run_relay(const Config &cfg) {
         print_stats(stats, oss);
         write_log(log, "STOP " + oss.str());
     }
+    cache.save();
+    refresh_stats_report();
     close(listen_sock);
     close(upstream_sock);
     return 0;

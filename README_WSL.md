@@ -30,14 +30,17 @@ g++ -std=c++17 -Wall -Wextra -O2 -Iinclude -o dnsrelay src/*.cpp
 Runtime output files are kept out of the project root:
 
 ```text
+cache/dnsrelay.cache
 logs/dnsrelay.log
 pcaps/*.pcap
-```
+stats/dashboard.html
 
-Create the capture directory once before using `tcpdump`:
+Create the runtime directories once before testing:
 
 ```bash
-mkdir -p logs pcaps
+mkdir -p cache logs pcaps stats
+```
+
 ```
 
 ## Project layout
@@ -51,6 +54,8 @@ include/
   local_db.h        local database records and matching
   relay.h           relay runtime and statistics
   relay_handlers.h  client/upstream packet handlers
+  stats_report.h    HTML statistics dashboard generator
+
   udp_socket.h      UDP socket creation helpers
   utils.h           small string, time, socket formatting helpers
 src/
@@ -62,6 +67,8 @@ src/
   local_db.cpp      dnsrelay.txt parser and wildcard matching
   relay.cpp         relay startup, select loop, shutdown statistics
   relay_handlers.cpp client query and upstream response processing
+  stats_report.cpp  writes stats/dashboard.html
+
   udp_socket.cpp    UDP bind/socket helpers
 Makefile
 dnsrelay.txt
@@ -71,10 +78,11 @@ README_WSL.md
 ## Run
 
 The command format remains compatible with the teacher's PPT. This version also
-adds `-p` for WSL testing and `-l` for the log file:
+adds `-p` for WSL testing, `-l` for the log file, `--cache-file` for the persistent cache,
+and `--stats-file` for the visual statistics dashboard:
 
 ```bash
-dnsrelay [-d|-dd] [-p listen-port] [-l log-file] [dns-server-ipaddr] [filename]
+dnsrelay [-d|-dd] [-p listen-port] [-l log-file] [--cache-file file] [--no-cache-file] [--stats-file file] [--no-stats] [dns-server-ipaddr] [filename]
 ```
 
 On Linux/WSL, listening on UDP port 53 usually requires root permission:
@@ -96,6 +104,17 @@ The local database file is hot-reloaded at runtime. After editing `dnsrelay.txt`
 the running relay detects the file timestamp change, reloads the records, and
 keeps serving queries without a restart. Reload events are printed in debug mode
 and written to the log as `HOSTS_RELOAD`.
+
+Forwarded DNS responses are cached in memory and also saved to
+`cache/dnsrelay.cache` by default. When the program starts again, unexpired
+cache entries are loaded automatically and can be returned without querying the
+upstream DNS server again. Use `--no-cache-file` to disable the persistent file,
+or `--cache-file path/to/file` to choose another cache file.
+
+Runtime statistics are written to `stats/dashboard.html` by default. Open this
+file in a browser to view request counters and bar charts. Use `--no-stats` to
+disable it, or `--stats-file path/to/file.html` to choose another output file.
+
 
 ## Local database format
 
@@ -159,8 +178,11 @@ To make the system use the relay as DNS, run it on port 53 and configure DNS to 
 This version adds three extension features that are useful for the report:
 
 - DNS cache: forwarded responses are cached according to the response TTL.
+- Persistent cache file: unexpired cache entries are saved under `cache/` and reloaded on restart.
 - Wildcard blocking/answering: `dnsrelay.txt` supports entries such as `*.bad.test`.
 - Query logs and statistics: each query is written to `logs/dnsrelay.log`; summary statistics print when the program exits.
+- Visual statistics dashboard: request counters and bar charts are written to `stats/dashboard.html`.
+
 
 Test wildcard matching:
 
@@ -191,6 +213,14 @@ View logs:
 
 ```bash
 tail -f logs/dnsrelay.log
+```
+
+Open the visual dashboard from Windows Explorer or a browser:
+
+```bash
+explorer.exe "$(wslpath -w stats/dashboard.html)"
+```
+
 ```
 
 Test hot reload without restarting the relay:

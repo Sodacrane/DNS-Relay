@@ -13,6 +13,13 @@ namespace dnsrelay {
 
 class ResponseCache {
 public:
+    ResponseCache() = default;
+    ResponseCache(std::string filename, bool persistent);
+
+    std::size_t load();
+    bool save() const;
+
+
     bool get(const Question &question,
              uint16_t response_id,
              std::vector<uint8_t> &response,
@@ -28,6 +35,9 @@ public:
     std::size_t size() const;
 
 private:
+    std::string filename_;
+    bool persistent_ = false;
+
     std::unordered_map<std::string, CacheEntry> entries_;
 };
 
