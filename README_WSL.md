@@ -92,6 +92,11 @@ For quick testing without `sudo`, listen on a high port:
 The program writes query logs and final statistics to `logs/dnsrelay.log` by default.
 Use `--no-log` to disable logging.
 
+The local database file is hot-reloaded at runtime. After editing `dnsrelay.txt`,
+the running relay detects the file timestamp change, reloads the records, and
+keeps serving queries without a restart. Reload events are printed in debug mode
+and written to the log as `HOSTS_RELOAD`.
+
 ## Local database format
 
 `dnsrelay.txt` supports the original two-column coursework format:
@@ -187,6 +192,19 @@ View logs:
 ```bash
 tail -f logs/dnsrelay.log
 ```
+
+Test hot reload without restarting the relay:
+
+```bash
+dig @127.0.0.1 -p 1053 hot.demo.test A
+echo "10.10.10.30 hot.demo.test" >> dnsrelay.txt
+sleep 2
+dig @127.0.0.1 -p 1053 hot.demo.test A
+```
+
+The first query is forwarded to the upstream DNS server. After the file reloads,
+the second query should return `A 10.10.10.30` from the local database. Remove
+the test line from `dnsrelay.txt` after the demo if it is no longer needed.
 
 ## Wireshark capture
 

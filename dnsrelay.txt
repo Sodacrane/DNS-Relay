@@ -10,3 +10,4 @@ host6.demo.test 60 IN AAAA 2001:db8::10
 
 
  
+10.10.10.30 hot.demo.test

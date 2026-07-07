@@ -12,15 +12,18 @@
 
 #include <algorithm>
 #include <cerrno>
+#include <chrono>
 #include <csignal>
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <optional>
 #include <sstream>
 #include <stdexcept>
 #include <string>
 #include <system_error>
+#include <utility>
 
 #include <netinet/in.h>
 #include <sys/select.h>
@@ -35,6 +38,62 @@ volatile std::sig_atomic_t g_running = 1;
 
 void signal_handler(int) {
     g_running = 0;
+}
+
+bool get_file_write_time(const std::string &filename,
+                         std::filesystem::file_time_type &write_time,
+                         std::string &error) {
+    std::error_code ec;
+    write_time = std::filesystem::last_write_time(filename, ec);
+    if (ec) {
+        error = ec.message();
+        return false;
+    }
+    return true;
+}
+
+void reload_hosts_if_changed(const Config &cfg,
+                             LocalDatabase &local_records,
+                             std::optional<std::filesystem::file_time_type> &last_hosts_write,
+                             std::ofstream &log) {
+    std::filesystem::file_time_type current_write{};
+    std::string error;
+    if (!get_file_write_time(cfg.hosts_file, current_write, error)) {
+        if (cfg.debug >= 1) {
+            std::cerr << "[reload-skip] cannot stat " << cfg.hosts_file
+                      << ": " << error << "\n";
+        }
+        write_log(log, "HOSTS_RELOAD_SKIP file=" + cfg.hosts_file +
+                       " error=\"" + error + "\"");
+        return;
+    }
+
+    if (last_hosts_write && current_write == *last_hosts_write) {
+        return;
+    }
+
+    try {
+        LocalDatabase reloaded = load_hosts(cfg.hosts_file);
+        const std::size_t exact_count = reloaded.exact.size();
+        const std::size_t wildcard_count = reloaded.wildcard.size();
+        local_records = std::move(reloaded);
+        last_hosts_write = current_write;
+
+        std::cout << "[reload] hosts file " << cfg.hosts_file
+                  << " reloaded, exact records " << exact_count
+                  << ", wildcard records " << wildcard_count << "\n";
+        write_log(log, "HOSTS_RELOAD file=" + cfg.hosts_file +
+                       " exact=" + std::to_string(exact_count) +
+                       " wildcard=" + std::to_string(wildcard_count));
+        log_local_hosts(local_records, cfg.debug);
+    } catch (const std::exception &ex) {
+        if (cfg.debug >= 1) {
+            std::cerr << "[reload-failed] " << cfg.hosts_file
+                      << ": " << ex.what() << "\n";
+        }
+        write_log(log, "HOSTS_RELOAD_FAILED file=" + cfg.hosts_file +
+                       " error=\"" + ex.what() + "\"");
+    }
 }
 
 } // namespace
@@ -62,6 +121,16 @@ int run_relay(const Config &cfg) {
     } catch (const std::exception &ex) {
         std::cerr << ex.what() << "\n";
         return 1;
+    }
+
+    std::optional<std::filesystem::file_time_type> last_hosts_write;
+    std::filesystem::file_time_type initial_hosts_write{};
+    std::string initial_hosts_error;
+    if (get_file_write_time(cfg.hosts_file, initial_hosts_write, initial_hosts_error)) {
+        last_hosts_write = initial_hosts_write;
+    } else {
+        std::cerr << "Warning: cannot watch hosts file " << cfg.hosts_file
+                  << ": " << initial_hosts_error << "\n";
     }
 
     sockaddr_in upstream_addr{};
@@ -122,6 +191,7 @@ int run_relay(const Config &cfg) {
     ForwardTable pending(FORWARD_TIMEOUT_SECONDS);
     ResponseCache cache;
     Stats stats;
+    auto next_hosts_reload_check = std::chrono::steady_clock::now() + std::chrono::seconds(1);
 
     while (g_running) {
         const auto expired = pending.cleanup_expired();
@@ -153,6 +223,13 @@ int run_relay(const Config &cfg) {
             std::perror("select");
             break;
         }
+
+        const auto now = std::chrono::steady_clock::now();
+        if (now >= next_hosts_reload_check) {
+            reload_hosts_if_changed(cfg, local_records, last_hosts_write, log);
+            next_hosts_reload_check = now + std::chrono::seconds(1);
+        }
+
         if (ready == 0) {
             continue;
         }
