@@ -13,6 +13,7 @@ struct Stats {
     uint64_t local_blocks = 0;
     uint64_t wildcard_hits = 0;
     uint64_t cache_hits = 0;
+    uint64_t cache_evictions = 0;
     uint64_t forwarded = 0;
     uint64_t upstream_responses = 0;
     uint64_t bad_queries = 0;

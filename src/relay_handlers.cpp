@@ -229,21 +229,54 @@ void handle_upstream_packet(int listen_sock,
     ++stats.upstream_responses;
 
     uint32_t ttl = 0;
+    uint32_t cache_ttl = 0;
+    std::size_t cache_evictions = 0;
     const uint16_t rcode = read_u16(buffer + 2) & 0x000f;
     const uint16_t ancount = read_u16(buffer + 6);
     if (rcode == 0 && ancount > 0 && extract_min_answer_ttl(buffer, static_cast<std::size_t>(n), ttl)) {
-        cache.store(item.qname, item.qtype, item.qclass, buffer, static_cast<std::size_t>(n), ttl);
-        if (cfg.debug >= 1) {
+        const std::size_t evictions_before = cache.eviction_count();
+        cache_ttl = cache.store(item.qname,
+                                item.qtype,
+                                item.qclass,
+                                buffer,
+                                static_cast<std::size_t>(n),
+                                ttl);
+        cache_evictions = cache.eviction_count() - evictions_before;
+        stats.cache_evictions += cache_evictions;
+        if (cache_ttl > 0 && cfg.debug >= 1) {
             std::cerr << "[cache-store] " << item.qname
-                      << " ttl=" << ttl << "s\n";
+                      << " upstream-ttl=" << ttl
+                      << " cache-ttl=" << cache_ttl << "s\n";
         }
-        write_log(log, "CACHE_STORE name=" + item.qname +
-                       " ttl=" + std::to_string(ttl));
+        if (cache_ttl > 0) {
+            write_log(log, "CACHE_STORE name=" + item.qname +
+                           " upstream_ttl=" + std::to_string(ttl) +
+                           " cache_ttl=" + std::to_string(cache_ttl));
+        } else {
+            write_log(log, "CACHE_SKIP name=" + item.qname +
+                           " upstream_ttl=" + std::to_string(ttl));
+        }
+        if (cache_evictions > 0) {
+            write_log(log, "CACHE_EVICT count=" + std::to_string(cache_evictions) +
+                           " capacity=" + std::to_string(cache.capacity()));
+        }
+    }
+
+    std::vector<uint8_t> client_response;
+    const uint8_t *response_data = buffer;
+    std::size_t response_len = static_cast<std::size_t>(n);
+    if (cache_ttl > 0) {
+        client_response.assign(buffer, buffer + n);
+        const std::time_t expires_at = std::time(nullptr) + static_cast<std::time_t>(cache_ttl);
+        if (refresh_cached_response(client_response, expires_at)) {
+            response_data = client_response.data();
+            response_len = client_response.size();
+        }
     }
 
     sendto(listen_sock,
-           buffer,
-           static_cast<std::size_t>(n),
+           response_data,
+           response_len,
            0,
            reinterpret_cast<sockaddr *>(&item.client_addr),
            item.client_len);

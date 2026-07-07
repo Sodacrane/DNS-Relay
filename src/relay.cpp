@@ -108,6 +108,7 @@ void print_stats(const Stats &stats, std::ostream &out) {
         << " local_blocks=" << stats.local_blocks
         << " wildcard_hits=" << stats.wildcard_hits
         << " cache_hits=" << stats.cache_hits
+        << " cache_evictions=" << stats.cache_evictions
         << " forwarded=" << stats.forwarded
         << " upstream_responses=" << stats.upstream_responses
         << " bad_queries=" << stats.bad_queries
@@ -164,7 +165,10 @@ int run_relay(const Config &cfg) {
             write_log(log, "START upstream=" + cfg.upstream_ip +
                               " port=" + std::to_string(cfg.listen_port) +
                               " hosts=" + cfg.hosts_file +
-                              " cache=" + (cfg.persistent_cache ? cfg.cache_file : "disabled"));
+                              " cache=" + (cfg.persistent_cache ? cfg.cache_file : "disabled") +
+                              " cache_min_ttl=" + std::to_string(cfg.cache_min_ttl) +
+                              " cache_max_ttl=" + std::to_string(cfg.cache_max_ttl) +
+                              " cache_capacity=" + std::to_string(cfg.cache_capacity));
         }
     }
 
@@ -189,12 +193,19 @@ int run_relay(const Config &cfg) {
               << ", hosts file " << cfg.hosts_file
               << ", exact records " << local_records.exact.size()
               << ", wildcard records " << local_records.wildcard.size()
-              << ", log " << (log ? cfg.log_file : "disabled") << "\n";
+              << ", log " << (log ? cfg.log_file : "disabled")
+              << ", cache capacity " << cfg.cache_capacity
+              << ", cache ttl clamp [" << cfg.cache_min_ttl
+              << ", " << cfg.cache_max_ttl << "]\n";
 
     log_local_hosts(local_records, cfg.debug);
 
     ForwardTable pending(FORWARD_TIMEOUT_SECONDS);
-    ResponseCache cache(cfg.cache_file, cfg.persistent_cache);
+    ResponseCache cache(cfg.cache_file,
+                        cfg.persistent_cache,
+                        cfg.cache_min_ttl,
+                        cfg.cache_max_ttl,
+                        cfg.cache_capacity);
     const std::size_t loaded_cache_entries = cache.load();
     Stats stats;
     bool stats_report_warning_printed = false;

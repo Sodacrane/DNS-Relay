@@ -74,12 +74,25 @@ void create_parent_directory(const std::string &filename) {
 } // namespace
 
 ResponseCache::ResponseCache(std::string filename, bool persistent)
-    : filename_(std::move(filename)), persistent_(persistent) {
+    : ResponseCache(std::move(filename), persistent, 0, std::numeric_limits<uint32_t>::max(), 1024) {
+}
+
+ResponseCache::ResponseCache(std::string filename,
+                             bool persistent,
+                             uint32_t min_ttl,
+                             uint32_t max_ttl,
+                             std::size_t capacity)
+    : filename_(std::move(filename)),
+      persistent_(persistent),
+      min_ttl_(min_ttl),
+      max_ttl_(max_ttl),
+      capacity_(capacity) {
 }
 
 std::size_t ResponseCache::load() {
     entries_.clear();
-    if (!persistent_ || filename_.empty()) {
+    lru_keys_.clear();
+    if (!persistent_ || filename_.empty() || capacity_ == 0) {
         return 0;
     }
 
@@ -107,6 +120,12 @@ std::size_t ResponseCache::load() {
         if (expires_at <= now) {
             continue;
         }
+        const uint32_t remaining_ttl = static_cast<uint32_t>(
+            std::min<std::time_t>(expires_at - now, std::numeric_limits<uint32_t>::max()));
+        const uint32_t cache_ttl = clamp_ttl(remaining_ttl);
+        if (cache_ttl == 0) {
+            continue;
+        }
 
         std::vector<uint8_t> response;
         if (!hex_decode(hex_response, response) || response.size() < DNS_HEADER_SIZE) {
@@ -120,11 +139,12 @@ std::size_t ResponseCache::load() {
 
         CacheEntry entry;
         entry.response = std::move(response);
-        entry.expires_at = expires_at;
-        entries_[cache_key(question)] = std::move(entry);
-        ++loaded;
+        entry.expires_at = now + static_cast<std::time_t>(cache_ttl);
+        insert_entry(cache_key(question), std::move(entry));
     }
 
+    enforce_capacity();
+    loaded = entries_.size();
     save();
     return loaded;
 }
@@ -142,13 +162,17 @@ bool ResponseCache::save() const {
 
     const std::time_t now = std::time(nullptr);
     out << CACHE_MAGIC << "\n";
-    for (const auto &kv : entries_) {
-        if (kv.second.expires_at <= now || kv.second.response.empty()) {
+    for (auto lru_it = lru_keys_.rbegin(); lru_it != lru_keys_.rend(); ++lru_it) {
+        const auto kv = entries_.find(*lru_it);
+        if (kv == entries_.end()) {
             continue;
         }
-        out << static_cast<long long>(kv.second.expires_at)
+        if (kv->second.expires_at <= now || kv->second.response.empty()) {
+            continue;
+        }
+        out << static_cast<long long>(kv->second.expires_at)
             << " "
-            << hex_encode(kv.second.response)
+            << hex_encode(kv->second.response)
             << "\n";
     }
     return true;
@@ -167,37 +191,106 @@ bool ResponseCache::get(const Question &question,
 
     response = it->second.response;
     if (!refresh_cached_response(response, it->second.expires_at)) {
-        entries_.erase(it);
+        erase_entry(it);
         save();
 
         return false;
     }
 
+    touch(it);
     set_u16(response.data(), response_id);
     ttl_left = std::max<std::time_t>(0, it->second.expires_at - std::time(nullptr));
     return true;
 }
 
-void ResponseCache::store(const std::string &qname,
-                          uint16_t qtype,
-                          uint16_t qclass,
-                          const uint8_t *packet,
-                          std::size_t len,
-                          uint32_t ttl) {
-    if (ttl == 0) {
-        return;
+uint32_t ResponseCache::store(const std::string &qname,
+                              uint16_t qtype,
+                              uint16_t qclass,
+                              const uint8_t *packet,
+                              std::size_t len,
+                              uint32_t ttl) {
+    if (ttl == 0 || capacity_ == 0) {
+        return 0;
     }
+
+    const uint32_t cache_ttl = clamp_ttl(ttl);
+    if (cache_ttl == 0) {
+        return 0;
+    }
+
+    prune_expired();
 
     CacheEntry entry;
     entry.response.assign(packet, packet + len);
-    entry.expires_at = std::time(nullptr) + std::min<uint32_t>(ttl, std::numeric_limits<uint32_t>::max());
-    entries_[cache_key(qname, qtype, qclass)] = entry;
+    entry.expires_at = std::time(nullptr) + static_cast<std::time_t>(cache_ttl);
+    insert_entry(cache_key(qname, qtype, qclass), std::move(entry));
+    enforce_capacity();
     save();
 
+    return cache_ttl;
 }
 
 std::size_t ResponseCache::size() const {
     return entries_.size();
+}
+
+std::size_t ResponseCache::capacity() const {
+    return capacity_;
+}
+
+std::size_t ResponseCache::eviction_count() const {
+    return evictions_;
+}
+
+uint32_t ResponseCache::clamp_ttl(uint32_t upstream_ttl) const {
+    return std::min(std::max(upstream_ttl, min_ttl_), max_ttl_);
+}
+
+void ResponseCache::touch(EntryMap::iterator it) {
+    lru_keys_.splice(lru_keys_.begin(), lru_keys_, it->second.lru_it);
+}
+
+void ResponseCache::erase_entry(EntryMap::iterator it) {
+    lru_keys_.erase(it->second.lru_it);
+    entries_.erase(it);
+}
+
+void ResponseCache::insert_entry(const std::string &key, CacheEntry entry) {
+    const auto existing = entries_.find(key);
+    if (existing != entries_.end()) {
+        erase_entry(existing);
+    }
+
+    lru_keys_.push_front(key);
+    entry.lru_it = lru_keys_.begin();
+    entries_[key] = std::move(entry);
+}
+
+void ResponseCache::prune_expired() {
+    const std::time_t now = std::time(nullptr);
+    for (auto it = entries_.begin(); it != entries_.end();) {
+        if (it->second.expires_at <= now) {
+            auto erase_it = it++;
+            erase_entry(erase_it);
+        } else {
+            ++it;
+        }
+    }
+}
+
+void ResponseCache::enforce_capacity() {
+    if (capacity_ == 0) {
+        entries_.clear();
+        lru_keys_.clear();
+        return;
+    }
+
+    while (entries_.size() > capacity_ && !lru_keys_.empty()) {
+        const std::string key = lru_keys_.back();
+        lru_keys_.pop_back();
+        entries_.erase(key);
+        ++evictions_;
+    }
 }
 
 } // namespace dnsrelay

@@ -11,9 +11,13 @@ namespace dnsrelay {
 
 void print_usage(const char *program) {
     std::cerr
-        << "Usage: " << program << " [-d|-dd] [-p listen-port] [-l log-file] [--cache-file file] [--no-cache-file] [--stats-file file] [--no-stats] [dns-server-ipaddr] [filename]\n"
+        << "Usage: " << program << " [-d|-dd] [-p listen-port] [-l log-file]\n"
+        << "       [--cache-file file] [--no-cache-file] [--cache-min-ttl seconds]\n"
+        << "       [--cache-max-ttl seconds] [--cache-capacity entries]\n"
+        << "       [--stats-file file] [--no-stats] [dns-server-ipaddr] [filename]\n"
         << "Example for normal DNS port: sudo " << program << " -d 114.114.114.114 dnsrelay.txt\n"
-        << "Example for WSL test port:   " << program << " -dd -p 1053 114.114.114.114 dnsrelay.txt\n";
+        << "Example for WSL test port:   " << program << " -dd -p 1053 114.114.114.114 dnsrelay.txt\n"
+        << "Example with cache tuning:   " << program << " -dd -p 1053 --cache-min-ttl 30 --cache-max-ttl 600 --cache-capacity 1024 114.114.114.114 dnsrelay.txt\n";
 }
 
 bool parse_args(int argc, char **argv, Config &cfg) {
@@ -58,6 +62,29 @@ bool parse_args(int argc, char **argv, Config &cfg) {
             cfg.persistent_cache = true;
             continue;
         }
+        if (arg == "--cache-min-ttl") {
+            if (i + 1 >= argc || !parse_u32(argv[++i], cfg.cache_min_ttl)) {
+                std::cerr << "Invalid cache minimum TTL.\n";
+                return false;
+            }
+            continue;
+        }
+        if (arg == "--cache-max-ttl") {
+            if (i + 1 >= argc || !parse_u32(argv[++i], cfg.cache_max_ttl)) {
+                std::cerr << "Invalid cache maximum TTL.\n";
+                return false;
+            }
+            continue;
+        }
+        if (arg == "--cache-capacity") {
+            uint32_t capacity = 0;
+            if (i + 1 >= argc || !parse_u32(argv[++i], capacity)) {
+                std::cerr << "Invalid cache capacity.\n";
+                return false;
+            }
+            cfg.cache_capacity = capacity;
+            continue;
+        }
         if (arg == "--stats-file") {
             if (i + 1 >= argc) {
                 std::cerr << "Missing stats file name.\n";
@@ -99,6 +126,10 @@ bool parse_args(int argc, char **argv, Config &cfg) {
                 return false;
             }
         }
+    }
+    if (cfg.cache_min_ttl > cfg.cache_max_ttl) {
+        std::cerr << "Cache minimum TTL cannot be greater than cache maximum TTL.\n";
+        return false;
     }
     return true;
 }

@@ -33,11 +33,6 @@ struct LocalResourceRecord {
     std::string text;
 };
 
-struct CacheEntry {
-    std::vector<uint8_t> response;
-    std::time_t expires_at = 0;
-};
-
 uint16_t read_u16(const uint8_t *p);
 uint32_t read_u32(const uint8_t *p);
 void write_u16(std::vector<uint8_t> &buf, uint16_t value);

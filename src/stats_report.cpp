@@ -106,6 +106,7 @@ bool write_stats_report(const Stats &stats, const StatsReportInfo &info) {
         {"Local blocks", stats.local_blocks, "#c2410c"},
         {"Wildcard hits", stats.wildcard_hits, "#7c3aed"},
         {"Cache hits", stats.cache_hits, "#2563eb"},
+        {"Cache evictions", stats.cache_evictions, "#475569"},
         {"Forwarded", stats.forwarded, "#b7791f"},
         {"Upstream responses", stats.upstream_responses, "#0f766e"},
         {"Bad queries", stats.bad_queries, "#b91c1c"},
@@ -184,6 +185,8 @@ bool write_stats_report(const Stats &stats, const StatsReportInfo &info) {
         << "<dt>Hosts file</dt><dd>" << html_escape(info.config.hosts_file) << "</dd>"
         << "<dt>Log file</dt><dd>" << (info.config.logging ? html_escape(info.config.log_file) : "disabled") << "</dd>"
         << "<dt>Cache file</dt><dd>" << (info.config.persistent_cache ? html_escape(info.config.cache_file) : "disabled") << "</dd>"
+        << "<dt>Cache capacity</dt><dd>" << info.config.cache_capacity << "</dd>"
+        << "<dt>Cache TTL clamp</dt><dd>" << info.config.cache_min_ttl << " - " << info.config.cache_max_ttl << " seconds</dd>"
         << "<dt>Cache entries</dt><dd>" << info.cache_entries << "</dd>"
         << "<dt>Pending queries</dt><dd>" << info.pending_queries << "</dd>"
         << "</dl>\n"

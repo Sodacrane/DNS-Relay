@@ -2,7 +2,9 @@
 
 #include "dns_protocol.h"
 
+#include <cstddef>
 #include <cstdint>
+#include <limits>
 #include <string>
 
 namespace dnsrelay {
@@ -19,6 +21,9 @@ struct Config {
     bool logging = true;
     bool persistent_cache = true;
     bool stats_report = true;
+    uint32_t cache_min_ttl = 0;
+    uint32_t cache_max_ttl = std::numeric_limits<uint32_t>::max();
+    std::size_t cache_capacity = 1024;
 };
 
 void print_usage(const char *program);
