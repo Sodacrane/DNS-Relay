@@ -11,6 +11,7 @@
 
 namespace dnsrelay {
 
+// DNS 报文字段使用网络字节序，这里手动读写避免平台字节序差异。
 uint16_t read_u16(const uint8_t *p) {
     return static_cast<uint16_t>((p[0] << 8) | p[1]);
 }
@@ -54,6 +55,7 @@ std::string cache_key(const std::string &qname, uint16_t qtype, uint16_t qclass)
     return qname + "|" + std::to_string(qtype) + "|" + std::to_string(qclass);
 }
 
+// 将文本类型转成 DNS type 编号；本项目本地响应主要支持 A 和 AAAA。
 bool parse_type(const std::string &text, uint16_t &type) {
     const std::string lower = to_lower(text);
     if (lower == "a") {
@@ -95,6 +97,7 @@ std::string class_to_string(uint16_t qclass) {
     }
 }
 
+// 把本地记录里的 IP 文本转换成 DNS RDATA 字节。
 bool parse_rdata(uint16_t type, const std::string &text, std::vector<uint8_t> &rdata) {
     rdata.clear();
     if (type == DNS_TYPE_A) {
@@ -119,6 +122,7 @@ bool parse_rdata(uint16_t type, const std::string &text, std::vector<uint8_t> &r
     return false;
 }
 
+// 解析 DNS 域名，支持普通 label 和 0xc0 开头的压缩指针。
 bool decode_name(const uint8_t *packet, std::size_t len, std::size_t &offset, std::string &out) {
     std::size_t pos = offset;
     std::size_t jumped_end = 0;
@@ -174,6 +178,7 @@ bool decode_name(const uint8_t *packet, std::size_t len, std::size_t &offset, st
     }
 }
 
+// 从 DNS 请求包里解析 question 区，得到域名、查询类型和 class。
 bool parse_question(const uint8_t *packet, std::size_t len, Question &question) {
     if (len < DNS_HEADER_SIZE) {
         return false;
@@ -200,6 +205,7 @@ bool parse_question(const uint8_t *packet, std::size_t len, Question &question) 
 
 namespace {
 
+// 跳过一个 DNS name，用于扫描 answer/authority/additional 区。
 bool skip_dns_name(const uint8_t *packet, std::size_t len, std::size_t &offset) {
     while (true) {
         if (offset >= len) {
@@ -229,6 +235,7 @@ bool skip_dns_name(const uint8_t *packet, std::size_t len, std::size_t &offset) 
     }
 }
 
+// 收集响应包中 TTL 字段的位置，后续用于取最小 TTL 或刷新缓存 TTL。
 bool collect_ttl_offsets(const uint8_t *packet,
                          std::size_t len,
                          bool answers_only,
@@ -276,6 +283,7 @@ bool collect_ttl_offsets(const uint8_t *packet,
 
 } // namespace
 
+// 上游响应里可能有多条 answer，缓存 TTL 取最小值更保守。
 bool extract_min_answer_ttl(const uint8_t *packet, std::size_t len, uint32_t &ttl) {
     std::vector<std::size_t> ttl_offsets;
     if (!collect_ttl_offsets(packet, len, true, ttl_offsets) || ttl_offsets.empty()) {
@@ -289,6 +297,7 @@ bool extract_min_answer_ttl(const uint8_t *packet, std::size_t len, uint32_t &tt
     return ttl > 0;
 }
 
+// 缓存响应返回给客户端前，把包内 TTL 改成剩余有效时间。
 bool refresh_cached_response(std::vector<uint8_t> &response, std::time_t expires_at) {
     const std::time_t now = std::time(nullptr);
     if (expires_at <= now) {
@@ -308,6 +317,7 @@ bool refresh_cached_response(std::vector<uint8_t> &response, std::time_t expires
     return true;
 }
 
+// 构造错误响应，例如本地拦截时返回 NXDOMAIN(rcode=3)。
 std::vector<uint8_t> make_error_response(const uint8_t *query,
                                          std::size_t len,
                                          const Question &question,
@@ -332,6 +342,7 @@ std::vector<uint8_t> make_error_response(const uint8_t *query,
     return response;
 }
 
+// 构造本地命中响应；answer 名称用 0xc00c 指针复用 question 里的域名。
 std::vector<uint8_t> make_local_response(const uint8_t *query,
                                          const Question &question,
                                          const std::vector<const LocalResourceRecord *> &answers) {

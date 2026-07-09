@@ -14,6 +14,7 @@
 
 namespace dnsrelay {
 
+// 程序运行时共享状态：集中保存本地表、缓存、转发表、统计和日志。
 struct SharedState {
     SharedState(LocalDatabase records, const Config &cfg, int forward_timeout_seconds);
 
@@ -30,6 +31,7 @@ struct SharedState {
     std::mutex log_mutex;
 };
 
+// 线程安全辅助函数：写日志、快照统计、查询当前缓存和待响应请求数量。
 void write_threadsafe_log(SharedState &state, const std::string &line);
 Stats snapshot_stats(SharedState &state);
 std::size_t cache_entry_count(SharedState &state);

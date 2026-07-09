@@ -16,6 +16,7 @@ namespace {
 
 constexpr const char *CACHE_MAGIC = "DNSRELAY_CACHE_V1";
 
+// 缓存文件里把二进制 DNS 包存成十六进制文本，方便简单持久化。
 char hex_digit(uint8_t value) {
     return static_cast<char>(value < 10 ? '0' + value : 'a' + (value - 10));
 }
@@ -33,6 +34,7 @@ int hex_value(char ch) {
     return -1;
 }
 
+// 把完整 DNS 响应包编码成十六进制字符串。
 std::string hex_encode(const std::vector<uint8_t> &data) {
     std::string encoded;
     encoded.reserve(data.size() * 2);
@@ -43,6 +45,7 @@ std::string hex_encode(const std::vector<uint8_t> &data) {
     return encoded;
 }
 
+// 从缓存文件恢复 DNS 响应包；格式不合法时返回 false。
 bool hex_decode(const std::string &text, std::vector<uint8_t> &data) {
     if (text.size() % 2 != 0) {
         return false;
@@ -61,6 +64,7 @@ bool hex_decode(const std::string &text, std::vector<uint8_t> &data) {
     return true;
 }
 
+// 保存缓存文件前确保父目录存在，例如 cache/。
 void create_parent_directory(const std::string &filename) {
     const std::filesystem::path path(filename);
     if (!path.has_parent_path()) {
@@ -89,6 +93,7 @@ ResponseCache::ResponseCache(std::string filename,
       capacity_(capacity) {
 }
 
+// 启动时加载持久化缓存，只保留未过期且能解析出查询 key 的响应。
 std::size_t ResponseCache::load() {
     entries_.clear();
     lru_keys_.clear();
@@ -149,6 +154,7 @@ std::size_t ResponseCache::load() {
     return loaded;
 }
 
+// 把当前未过期缓存写回文件；LRU 新记录优先写在前面。
 bool ResponseCache::save() const {
     if (!persistent_ || filename_.empty()) {
         return true;
@@ -179,6 +185,7 @@ bool ResponseCache::save() const {
 }
 
 
+// 缓存命中时刷新 TTL、改回本次请求 ID，并把该 key 移到 LRU 头部。
 bool ResponseCache::get(const Question &question,
                         uint16_t response_id,
                         std::vector<uint8_t> &response,
@@ -203,6 +210,7 @@ bool ResponseCache::get(const Question &question,
     return true;
 }
 
+// 缓存上游成功响应；TTL 会按配置的 min/max 做夹取，并触发容量淘汰。
 uint32_t ResponseCache::store(const std::string &qname,
                               uint16_t qtype,
                               uint16_t qclass,
@@ -242,10 +250,12 @@ std::size_t ResponseCache::eviction_count() const {
     return evictions_;
 }
 
+// 防止缓存 TTL 过短或过长，按命令行配置限制范围。
 uint32_t ResponseCache::clamp_ttl(uint32_t upstream_ttl) const {
     return std::min(std::max(upstream_ttl, min_ttl_), max_ttl_);
 }
 
+// LRU 命中后移到链表头部，表示最近使用。
 void ResponseCache::touch(EntryMap::iterator it) {
     lru_keys_.splice(lru_keys_.begin(), lru_keys_, it->second.lru_it);
 }
@@ -266,6 +276,7 @@ void ResponseCache::insert_entry(const std::string &key, CacheEntry entry) {
     entries_[key] = std::move(entry);
 }
 
+// 删除已过期缓存，避免返回过期 DNS 响应。
 void ResponseCache::prune_expired() {
     const std::time_t now = std::time(nullptr);
     for (auto it = entries_.begin(); it != entries_.end();) {
@@ -278,6 +289,7 @@ void ResponseCache::prune_expired() {
     }
 }
 
+// 超过容量时从 LRU 尾部淘汰最久未使用的记录。
 void ResponseCache::enforce_capacity() {
     if (capacity_ == 0) {
         entries_.clear();

@@ -9,6 +9,7 @@
 
 namespace dnsrelay {
 
+// 通用字符串、IP、端口和日志工具函数，供配置解析和 DNS 处理复用。
 std::string to_lower(std::string text);
 std::string trim(const std::string &text);
 bool ends_with(const std::string &text, const std::string &suffix);

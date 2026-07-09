@@ -5,7 +5,7 @@ This is the Linux/WSL version of the DNS Relay coursework program.
 Enter the code directory first:
 
 ```bash
-cd "/mnt/c/Users/32741/Downloads/to students 2026/to students/code"
+cd "/mnt/c/Users/tangyuan/Documents/GitHub/DNS-Relay"
 ```
 
 ## Build
@@ -21,13 +21,14 @@ sudo apt install build-essential
 make
 ```
 
-Object files and dependency files are generated under `build/`, so `src/`
-contains source `.cpp` files only.
+The executable, object files, and dependency files are generated under `build/`,
+so `src/` contains source `.cpp` files only.
 
 If `make` is not installed:
 
 ```bash
-g++ -std=c++17 -Wall -Wextra -O2 -Iinclude -o dnsrelay src/*.cpp
+mkdir -p build/bin
+g++ -std=c++17 -Wall -Wextra -O2 -pthread -Iinclude -o build/bin/dnsrelay src/*.cpp
 ```
 
 Runtime output files are kept out of the project root:
@@ -74,7 +75,7 @@ src/
   stats_report.cpp  writes stats/dashboard.html
   thread_pool.cpp   worker queue and worker threads
   udp_socket.cpp    UDP bind/socket helpers
-build/              generated object/dependency files, ignored by git
+build/              generated executable/object/dependency files, ignored by git
 Makefile
 dnsrelay.txt
 README_WSL.md
@@ -99,19 +100,19 @@ dnsrelay [-d|-dd] [-p listen-port] [-l log-file]
 On Linux/WSL, listening on UDP port 53 usually requires root permission:
 
 ```bash
-sudo ./dnsrelay -d 114.114.114.114 dnsrelay.txt
+sudo ./build/bin/dnsrelay -d 114.114.114.114 dnsrelay.txt
 ```
 
 For quick testing without `sudo`, listen on a high port:
 
 ```bash
-./dnsrelay -dd -p 1053 114.114.114.114 dnsrelay.txt
+./build/bin/dnsrelay -dd -p 1053 114.114.114.114 dnsrelay.txt
 ```
 
 Use a fixed worker thread pool for concurrent client query processing:
 
 ```bash
-./dnsrelay -dd -p 1053 --threads 4 114.114.114.114 dnsrelay.txt
+./build/bin/dnsrelay -dd -p 1053 --threads 4 114.114.114.114 dnsrelay.txt
 ```
 
 The main thread receives UDP packets and upstream responses. Client query
@@ -247,7 +248,7 @@ query should not create another packet from the relay to the upstream DNS server
 Test cache TTL clamping and LRU eviction by starting the relay with a small cache:
 
 ```bash
-./dnsrelay -dd -p 1053 --cache-min-ttl 30 --cache-max-ttl 60 --cache-capacity 2 114.114.114.114 dnsrelay.txt
+./build/bin/dnsrelay -dd -p 1053 --cache-min-ttl 30 --cache-max-ttl 60 --cache-capacity 2 114.114.114.114 dnsrelay.txt
 ```
 
 Then query three different forwarded domains:
@@ -266,7 +267,7 @@ which is logged as `CACHE_EVICT` and counted as `cache_evictions`.
 Test thread pool concurrency by starting with multiple workers:
 
 ```bash
-./dnsrelay -dd -p 1053 --threads 4 114.114.114.114 dnsrelay.txt
+./build/bin/dnsrelay -dd -p 1053 --threads 4 114.114.114.114 dnsrelay.txt
 ```
 
 Then run several queries at the same time from another terminal:
@@ -315,7 +316,7 @@ with Wireshark on Windows.
 Terminal 1, start the relay:
 
 ```bash
-./dnsrelay -dd -p 1053 114.114.114.114 dnsrelay.txt
+./build/bin/dnsrelay -dd -p 1053 114.114.114.114 dnsrelay.txt
 ```
 
 Terminal 2, capture loopback packets:

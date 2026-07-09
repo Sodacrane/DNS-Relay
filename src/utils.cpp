@@ -12,6 +12,7 @@
 
 namespace dnsrelay {
 
+// 工具函数集合：字符串清理、IP/端口判断、日志时间和 socket 地址格式化。
 std::string to_lower(std::string text) {
     for (char &ch : text) {
         if (ch >= 'A' && ch <= 'Z') {

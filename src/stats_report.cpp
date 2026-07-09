@@ -14,12 +14,14 @@
 namespace dnsrelay {
 namespace {
 
+// 统计页面中的一个指标卡片。
 struct Metric {
     std::string label;
     uint64_t value = 0;
     std::string accent;
 };
 
+// 写 HTML 前转义特殊字符，避免配置内容破坏页面结构。
 std::string html_escape(const std::string &text) {
     std::string out;
     out.reserve(text.size());
@@ -45,6 +47,7 @@ std::string html_escape(const std::string &text) {
     return out;
 }
 
+// 把某个计数换算成占总查询数的百分比字符串。
 std::string percent(uint64_t value, uint64_t total) {
     if (total == 0) {
         return "0.0%";
@@ -57,6 +60,7 @@ std::string percent(uint64_t value, uint64_t total) {
     return oss.str();
 }
 
+// 写 dashboard 前确保 stats/ 目录存在。
 void ensure_parent_directory(const std::string &filename) {
     const std::filesystem::path path(filename);
     if (!path.has_parent_path()) {
@@ -67,6 +71,7 @@ void ensure_parent_directory(const std::string &filename) {
     std::filesystem::create_directories(path.parent_path(), ec);
 }
 
+// 输出一个统计卡片，例如本地命中数、缓存命中数。
 void write_metric_card(std::ostream &out, const Metric &metric, uint64_t total) {
     out << "<section class=\"metric\" style=\"--accent:" << metric.accent << "\">"
         << "<div class=\"metric-label\">" << html_escape(metric.label) << "</div>"
@@ -75,6 +80,7 @@ void write_metric_card(std::ostream &out, const Metric &metric, uint64_t total) 
         << "</section>\n";
 }
 
+// 输出条形统计，帮助从页面上快速比较各类请求数量。
 void write_bar(std::ostream &out, const Metric &metric, uint64_t max_value) {
     const double width = max_value == 0 ? 0.0 :
         (static_cast<double>(metric.value) * 100.0 / static_cast<double>(max_value));
@@ -90,6 +96,7 @@ void write_bar(std::ostream &out, const Metric &metric, uint64_t max_value) {
 
 } // namespace
 
+// 生成 HTML 统计页面，主循环会定期调用它刷新 dashboard。
 bool write_stats_report(const Stats &stats, const StatsReportInfo &info) {
     if (!info.config.stats_report || info.config.stats_file.empty()) {
         return true;

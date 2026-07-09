@@ -19,6 +19,7 @@
 namespace dnsrelay {
 namespace {
 
+// 把已经构造好的 DNS 响应发回原客户端地址。
 void send_client_response(int sock,
                           const std::vector<uint8_t> &response,
                           const sockaddr_storage &client_addr,
@@ -31,6 +32,7 @@ void send_client_response(int sock,
            client_len);
 }
 
+// 统计更新统一加锁，避免多个工作线程同时修改计数。
 void add_to_stats(SharedState &state, void (*update)(Stats &)) {
     std::lock_guard<std::mutex> lock(state.stats_mutex);
     update(state.stats);
@@ -38,6 +40,7 @@ void add_to_stats(SharedState &state, void (*update)(Stats &)) {
 
 } // namespace
 
+// debug >= 2 时打印当前本地表，方便确认 dnsrelay.txt 是否加载正确。
 void log_local_hosts(const LocalDatabase &local_records, int debug) {
     if (debug < 2) {
         return;
@@ -61,6 +64,7 @@ void log_local_hosts(const LocalDatabase &local_records, int debug) {
     }
 }
 
+// 从监听 socket 收一个客户端 UDP 包，并保存客户端地址用于回包。
 bool receive_client_packet(int listen_sock, ClientPacket &packet) {
     packet.data.assign(MAX_DNS_PACKET, 0);
     packet.client_addr = {};
@@ -80,6 +84,7 @@ bool receive_client_packet(int listen_sock, ClientPacket &packet) {
     return true;
 }
 
+// 客户端查询处理主逻辑：解析问题、本地表命中、缓存命中，否则转发上游。
 void process_client_query(int listen_sock,
                           int upstream_sock,
                           const sockaddr_in &upstream_addr,
@@ -89,6 +94,7 @@ void process_client_query(int listen_sock,
     const uint8_t *buffer = packet.data.data();
     const std::size_t n = packet.data.size();
 
+    // 先解析 question 区，非法 DNS 查询直接计入 bad_queries。
     Question question;
     if (!parse_question(buffer, n, question)) {
         add_to_stats(state, [](Stats &stats) { ++stats.bad_queries; });
@@ -115,6 +121,7 @@ void process_client_query(int listen_sock,
     std::string matched_pattern;
     std::vector<LocalResourceRecord> local_answers;
     {
+        // 本地规则支持精确域名和通配符；读本地表时用共享锁允许并发查询。
         std::shared_lock<std::shared_mutex> lock(state.local_records_mutex);
         const LocalRecord *local_record = find_local_record(state.local_records, question.qname, wildcard_match);
         if (local_record) {
@@ -139,6 +146,7 @@ void process_client_query(int listen_sock,
     }
 
     if (local_block) {
+        // 0.0.0.0 规则表示拦截，返回 NXDOMAIN。
         {
             std::lock_guard<std::mutex> lock(state.stats_mutex);
             ++state.stats.local_blocks;
@@ -160,6 +168,7 @@ void process_client_query(int listen_sock,
     }
 
     if (!local_answers.empty()) {
+        // 本地表命中时直接构造 DNS answer，不需要访问上游 DNS。
         std::vector<const LocalResourceRecord *> answer_ptrs;
         answer_ptrs.reserve(local_answers.size());
         for (const auto &rr : local_answers) {
@@ -194,6 +203,7 @@ void process_client_query(int listen_sock,
     std::time_t ttl_left = 0;
     bool cache_hit = false;
     {
+        // 缓存命中时 get() 会刷新 TTL 并把响应 ID 改回客户端原 ID。
         std::lock_guard<std::mutex> lock(state.cache_mutex);
         cache_hit = state.cache.get(question, original_id, cached_response, ttl_left);
     }
@@ -213,6 +223,7 @@ void process_client_query(int listen_sock,
     std::vector<uint8_t> forward_packet(packet.data.begin(), packet.data.end());
     uint16_t forward_id = 0;
     try {
+        // 转发前重新分配 DNS ID，并记录原 ID 和客户端地址。
         std::lock_guard<std::mutex> lock(state.pending_mutex);
         forward_id = state.pending.add(original_id, packet.client_addr, packet.client_len, question);
     } catch (const std::exception &ex) {
@@ -244,6 +255,7 @@ void process_client_query(int listen_sock,
                                 " upstream_id=" + std::to_string(forward_id));
 }
 
+// 处理上游 DNS 的响应：根据 forward_id 找回客户端，再把响应发回去。
 void handle_upstream_packet(int listen_sock,
                             int upstream_sock,
                             const Config &cfg,
@@ -264,6 +276,7 @@ void handle_upstream_packet(int listen_sock,
     const uint16_t forward_id = read_u16(buffer);
     ForwardItem item;
     {
+        // 上游响应的 ID 是 forward_id，通过 pending 表恢复原客户端请求。
         std::lock_guard<std::mutex> lock(state.pending_mutex);
         if (!state.pending.pop(forward_id, item)) {
             if (cfg.debug >= 2) {
@@ -273,6 +286,7 @@ void handle_upstream_packet(int listen_sock,
         }
     }
 
+    // 客户端只认识自己原来的 DNS ID，因此转回客户端前必须恢复 original_id。
     set_u16(buffer, item.original_id);
     add_to_stats(state, [](Stats &stats) { ++stats.upstream_responses; });
 
@@ -282,6 +296,7 @@ void handle_upstream_packet(int listen_sock,
     const uint16_t rcode = read_u16(buffer + 2) & 0x000f;
     const uint16_t ancount = read_u16(buffer + 6);
     if (rcode == 0 && ancount > 0 && extract_min_answer_ttl(buffer, static_cast<std::size_t>(n), ttl)) {
+        // 成功响应才进入缓存；缓存 TTL 取上游 answer 中的最小 TTL 并受配置限制。
         {
             std::lock_guard<std::mutex> lock(state.cache_mutex);
             const std::size_t evictions_before = state.cache.eviction_count();
@@ -325,6 +340,7 @@ void handle_upstream_packet(int listen_sock,
     const uint8_t *response_data = buffer;
     std::size_t response_len = static_cast<std::size_t>(n);
     if (cache_ttl > 0) {
+        // 刚缓存的响应也刷新一次 TTL，让返回给客户端的 TTL 和缓存剩余时间一致。
         client_response.assign(buffer, buffer + n);
         const std::time_t expires_at = std::time(nullptr) + static_cast<std::time_t>(cache_ttl);
         if (refresh_cached_response(client_response, expires_at)) {

@@ -5,6 +5,7 @@
 
 namespace dnsrelay {
 
+// 固定大小线程池，至少创建 1 个工作线程，避免没有线程处理任务。
 ThreadPool::ThreadPool(std::size_t thread_count) {
     const std::size_t actual_count = std::max<std::size_t>(1, thread_count);
     workers_.reserve(actual_count);
@@ -17,6 +18,7 @@ ThreadPool::~ThreadPool() {
     shutdown();
 }
 
+// 主线程提交客户端查询处理任务，由空闲工作线程取走执行。
 void ThreadPool::submit(std::function<void()> task) {
     {
         std::lock_guard<std::mutex> lock(mutex_);
@@ -28,6 +30,7 @@ void ThreadPool::submit(std::function<void()> task) {
     cv_.notify_one();
 }
 
+// 通知所有工作线程退出，并等待它们 join。
 void ThreadPool::shutdown() {
     {
         std::lock_guard<std::mutex> lock(mutex_);
@@ -50,6 +53,7 @@ std::size_t ThreadPool::thread_count() const {
     return workers_.size();
 }
 
+// 工作线程主循环：等待任务队列，有任务就执行；停止且无任务时退出。
 void ThreadPool::worker_loop() {
     while (true) {
         std::function<void()> task;

@@ -9,6 +9,7 @@
 
 namespace dnsrelay {
 
+// 输出命令行用法，参数错误或 -h/--help 时会调用。
 void print_usage(const char *program) {
     std::cerr
         << "Usage: " << program << " [-d|-dd] [-p listen-port] [-l log-file]\n"
@@ -21,6 +22,7 @@ void print_usage(const char *program) {
         << "Example with cache tuning:   " << program << " -dd -p 1053 --cache-min-ttl 30 --cache-max-ttl 600 --cache-capacity 1024 114.114.114.114 dnsrelay.txt\n";
 }
 
+// 解析命令行参数到 Config，位置参数支持“上游 DNS + 本地表文件”。
 bool parse_args(int argc, char **argv, Config &cfg) {
     std::vector<std::string> positional;
 

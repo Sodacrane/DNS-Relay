@@ -39,10 +39,12 @@ constexpr int FORWARD_TIMEOUT_SECONDS = 10;
 
 volatile std::sig_atomic_t g_running = 1;
 
+// Ctrl+C 或终止信号会把主循环标志置为 0，让程序走正常清理流程。
 void signal_handler(int) {
     g_running = 0;
 }
 
+// 获取本地表文件修改时间，用于判断 dnsrelay.txt 是否需要热重载。
 bool get_file_write_time(const std::string &filename,
                          std::filesystem::file_time_type &write_time,
                          std::string &error) {
@@ -55,6 +57,7 @@ bool get_file_write_time(const std::string &filename,
     return true;
 }
 
+// 每秒检查本地表文件是否变化；变化后重新加载并替换内存中的 local_records。
 void reload_hosts_if_changed(const Config &cfg,
                              SharedState &state,
                              std::optional<std::filesystem::file_time_type> &last_hosts_write) {
@@ -106,6 +109,7 @@ void reload_hosts_if_changed(const Config &cfg,
 
 } // namespace
 
+// 统一格式输出统计信息，终端和日志都会复用这个函数。
 void print_stats(const Stats &stats, std::ostream &out) {
     out << "queries=" << stats.total_queries
         << " local_hits=" << stats.local_hits
@@ -119,6 +123,7 @@ void print_stats(const Stats &stats, std::ostream &out) {
         << " timeouts=" << stats.timeouts;
 }
 
+// DNS Relay 主入口：初始化资源、进入 select 主循环、退出时清理资源。
 int run_relay(const Config &cfg) {
     g_running = 1;
     std::signal(SIGINT, signal_handler);
@@ -126,6 +131,7 @@ int run_relay(const Config &cfg) {
 
     LocalDatabase loaded_records;
     try {
+        // 启动时先把 dnsrelay.txt 读入内存，后续查询直接查内存表。
         loaded_records = load_hosts(cfg.hosts_file);
     } catch (const std::exception &ex) {
         std::cerr << ex.what() << "\n";
@@ -143,6 +149,7 @@ int run_relay(const Config &cfg) {
     }
 
     sockaddr_in upstream_addr{};
+    // 上游 DNS 固定使用 53 端口，例如 114.114.114.114:53。
     upstream_addr.sin_family = AF_INET;
     upstream_addr.sin_port = htons(DNS_PORT);
     if (inet_pton(AF_INET, cfg.upstream_ip.c_str(), &upstream_addr.sin_addr) != 1) {
@@ -150,6 +157,7 @@ int run_relay(const Config &cfg) {
         return 1;
     }
 
+    // SharedState 保存所有运行期共享数据：本地表、缓存、转发表、统计和日志。
     SharedState state(std::move(loaded_records), cfg, FORWARD_TIMEOUT_SECONDS);
 
     if (cfg.logging) {
@@ -181,6 +189,7 @@ int run_relay(const Config &cfg) {
     int listen_sock = -1;
     int upstream_sock = -1;
     try {
+        // listen_sock 收客户端请求；upstream_sock 和上游 DNS 通信。
         listen_sock = create_bound_socket(cfg.listen_port);
         upstream_sock = create_udp_socket();
     } catch (const std::exception &ex) {
@@ -221,6 +230,7 @@ int run_relay(const Config &cfg) {
     std::size_t loaded_cache_entries = 0;
     {
         std::lock_guard<std::mutex> lock(state.cache_mutex);
+        // 启动时把未过期的持久化缓存读入内存。
         loaded_cache_entries = state.cache.load();
     }
 
@@ -243,6 +253,7 @@ int run_relay(const Config &cfg) {
         return info;
     };
 
+    // 写 stats/dashboard.html，失败只警告一次，避免刷屏。
     auto refresh_stats_report = [&]() {
         const Stats stats_snapshot = snapshot_stats(state);
         if (!write_stats_report(stats_snapshot, make_stats_info()) && !stats_report_warning_printed) {
@@ -263,6 +274,7 @@ int run_relay(const Config &cfg) {
         std::vector<ForwardTimeout> expired;
         {
             std::lock_guard<std::mutex> lock(state.pending_mutex);
+            // 清理转发给上游后长时间没有响应的请求。
             expired = state.pending.cleanup_expired();
         }
 
@@ -285,6 +297,7 @@ int run_relay(const Config &cfg) {
         FD_SET(listen_sock, &readfds);
         FD_SET(upstream_sock, &readfds);
 
+        // select 同时等待客户端请求和上游响应，最多阻塞 1 秒。
         const int max_fd = std::max(listen_sock, upstream_sock);
         timeval tv{};
         tv.tv_sec = 1;
@@ -301,11 +314,13 @@ int run_relay(const Config &cfg) {
 
         const auto now = std::chrono::steady_clock::now();
         if (now >= next_hosts_reload_check) {
+            // 即使没有网络包，select 每秒醒一次也能触发热重载检查。
             reload_hosts_if_changed(cfg, state, last_hosts_write);
             next_hosts_reload_check = now + std::chrono::seconds(1);
         }
 
         if (ready > 0 && FD_ISSET(listen_sock, &readfds)) {
+            // 客户端来了 DNS 查询：先收包，再交给线程池处理业务逻辑。
             ClientPacket packet;
             if (receive_client_packet(listen_sock, packet)) {
                 thread_pool.submit([listen_sock,
@@ -326,16 +341,19 @@ int run_relay(const Config &cfg) {
         }
 
         if (ready > 0 && FD_ISSET(upstream_sock, &readfds)) {
+            // 上游 DNS 返回响应：主线程恢复 ID、更新缓存并回发客户端。
             handle_upstream_packet(listen_sock, upstream_sock, cfg, state);
             stats_changed = true;
         }
 
         if (stats_changed || now >= next_stats_refresh) {
+            // 有状态变化或到达刷新周期时更新统计页面。
             refresh_stats_report();
             next_stats_refresh = now + std::chrono::seconds(1);
         }
     }
 
+    // 退出阶段：先停线程池，再保存统计和缓存，最后关闭 socket。
     thread_pool.shutdown();
 
     const Stats final_stats = snapshot_stats(state);

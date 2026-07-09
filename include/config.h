@@ -9,6 +9,7 @@
 
 namespace dnsrelay {
 
+// 程序运行配置：由命令行参数解析得到，后续传给主循环和处理函数。
 struct Config {
     int debug = 0;
     std::string upstream_ip = "114.114.114.114";
@@ -27,6 +28,7 @@ struct Config {
     std::size_t thread_count = 4;
 };
 
+// 打印帮助信息，并把 argc/argv 解析到 Config。
 void print_usage(const char *program);
 bool parse_args(int argc, char **argv, Config &cfg);
 

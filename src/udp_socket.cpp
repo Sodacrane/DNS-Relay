@@ -12,6 +12,7 @@
 
 namespace dnsrelay {
 
+// 创建并绑定监听 socket，客户端的 DNS 查询会发到这个端口。
 int create_bound_socket(uint16_t port) {
     int sock = socket(AF_INET, SOCK_DGRAM, 0);
     if (sock < 0) {
@@ -33,6 +34,7 @@ int create_bound_socket(uint16_t port) {
     return sock;
 }
 
+// 创建普通 UDP socket，用来向上游 DNS 发送请求并接收响应。
 int create_udp_socket() {
     int sock = socket(AF_INET, SOCK_DGRAM, 0);
     if (sock < 0) {
