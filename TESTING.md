@@ -52,9 +52,9 @@ make
 在终端 2 运行：
 
 ```bash
-dig @127.0.0.1 -p 1053 www.666.com A
-dig @127.0.0.1 -p 1053 www.bupt.com.cn A
-dig @127.0.0.1 -p 1053 www.baidu.com A
+dig @10.29.235.155 -p 1053 www.666.com A
+dig @10.29.235.155 -p 1053 www.bupt.com.cn A
+dig @10.29.235.155 -p 1053 www.baidu.com A
 ```
 
 预期结果：
@@ -68,15 +68,15 @@ dig @127.0.0.1 -p 1053 www.baidu.com A
 ## 3. nslookup 测试
 
 ```bash
-nslookup -port=1053 www.bupt.com.cn 127.0.0.1
-nslookup -port=1053 www.baidu.com 127.0.0.1
+nslookup -port=1053 www.bupt.com.cn 10.29.235.155
+nslookup -port=1053 www.baidu.com 10.29.235.155
 ```
 
 ## 4. 通配符拦截和通配符本地解析
 
 ```bash
-dig @127.0.0.1 -p 1053 ads.bad.test A
-dig @127.0.0.1 -p 1053 host.demo.test A
+dig @10.29.235.155 -p 1053 ads.bad.test A
+dig @10.29.235.155 -p 1053 host.demo.test A
 ```
 
 预期结果：
@@ -91,13 +91,13 @@ dig @127.0.0.1 -p 1053 host.demo.test A
 本地 AAAA 记录：
 
 ```bash
-dig @127.0.0.1 -p 1053 host6.demo.test AAAA
+dig @10.29.235.155 -p 1053 host6.demo.test AAAA
 ```
 
 转发 AAAA 查询：
 
 ```bash
-dig @127.0.0.1 -p 1053 www.cloudflare.com AAAA
+dig @10.29.235.155 -p 1053 www.cloudflare.com AAAA
 ```
 
 ## 6. MX / PTR 转发测试
@@ -105,13 +105,13 @@ dig @127.0.0.1 -p 1053 www.cloudflare.com AAAA
 MX 查询不会直接返回 IP，而是返回邮件服务器域名：
 
 ```bash
-dig @127.0.0.1 -p 1053 gmail.com MX
+dig @10.29.235.155 -p 1053 gmail.com MX
 ```
 
 反向解析 PTR：
 
 ```bash
-dig @127.0.0.1 -p 1053 -x 8.8.8.8
+dig @10.29.235.155 -p 1053 -x 8.8.8.8
 ```
 
 ## 7. 缓存测试
@@ -119,8 +119,8 @@ dig @127.0.0.1 -p 1053 -x 8.8.8.8
 连续查询两次同一个本地没有记录的域名：
 
 ```bash
-dig @127.0.0.1 -p 1053 www.cloudflare.com A
-dig @127.0.0.1 -p 1053 www.cloudflare.com A
+dig @10.29.235.155 -p 1053 www.cloudflare.com A
+dig @10.29.235.155 -p 1053 www.cloudflare.com A
 ```
 
 查看日志：
@@ -147,7 +147,7 @@ CACHE_HIT
 先启动 DNS Relay，然后查询一次：
 
 ```bash
-dig @127.0.0.1 -p 1053 www.cloudflare.com A
+dig @10.29.235.155 -p 1053 www.cloudflare.com A
 ```
 
 在终端 1 按 `Ctrl+C` 停止 DNS Relay，再重新启动：
@@ -159,7 +159,7 @@ dig @127.0.0.1 -p 1053 www.cloudflare.com A
 再次查询：
 
 ```bash
-dig @127.0.0.1 -p 1053 www.cloudflare.com A
+dig @10.29.235.155 -p 1053 www.cloudflare.com A
 ```
 
 查看日志：
@@ -186,9 +186,9 @@ CACHE_HIT
 终端 2 运行：
 
 ```bash
-dig @127.0.0.1 -p 1053 www.baidu.com A
-dig @127.0.0.1 -p 1053 www.github.com A
-dig @127.0.0.1 -p 1053 www.qq.com A
+dig @10.29.235.155 -p 1053 www.baidu.com A
+dig @10.29.235.155 -p 1053 www.github.com A
+dig @10.29.235.155 -p 1053 www.qq.com A
 tail -n 50 logs/dnsrelay.log
 ```
 
@@ -203,10 +203,10 @@ CACHE_EVICT
 不重启终端 1 的 DNS Relay，在终端 2 运行：
 
 ```bash
-dig @127.0.0.1 -p 1053 live.demo.test A
+dig @10.29.235.155 -p 1053 live.demo.test A
 echo "10.10.10.31 live.demo.test" >> dnsrelay.txt
 sleep 2
-dig @127.0.0.1 -p 1053 live.demo.test A
+dig @10.29.235.155 -p 1053 live.demo.test A
 ```
 
 预期第二次查询返回：
@@ -237,7 +237,7 @@ sed -i '/10.10.10.31 live.demo.test/d' dnsrelay.txt
 
 ```bash
 for name in www.baidu.com www.cloudflare.com www.qq.com www.github.com host.demo.test ads.bad.test; do
-  dig @127.0.0.1 -p 1053 "$name" A +short &
+  dig @10.29.235.155 -p 1053 "$name" A +short &
 done
 wait
 ```
@@ -317,11 +317,11 @@ sudo tcpdump -i any -w pcaps/dnsrelay-forward.pcap 'udp port 53 or udp port 1053
 终端 3 跑查询：
 
 ```bash
-dig @127.0.0.1 -p 1053 www.666.com A
-dig @127.0.0.1 -p 1053 www.bupt.com.cn A
-dig @127.0.0.1 -p 1053 www.baidu.com A
-dig @127.0.0.1 -p 1053 www.cloudflare.com A
-dig @127.0.0.1 -p 1053 www.cloudflare.com A
+dig @10.29.235.155 -p 1053 www.666.com A
+dig @10.29.235.155 -p 1053 www.bupt.com.cn A
+dig @10.29.235.155 -p 1053 www.baidu.com A
+dig @10.29.235.155 -p 1053 www.cloudflare.com A
+dig @10.29.235.155 -p 1053 www.cloudflare.com A
 ```
 
 然后在终端 2 按 `Ctrl+C` 停止抓包。
@@ -346,4 +346,3 @@ dns || udp.port == 1053
 | `www.bupt.com.cn` | 本地直接返回 A 记录 `114.255.40.66` |
 | `www.baidu.com` | 有 `1053` 客户端请求，也有 `53` 上游转发 |
 | 第二次 `www.cloudflare.com` | 应该只有本地 `1053` 响应，没有新的上游 `53` 查询 |
-
