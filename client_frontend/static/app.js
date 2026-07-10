@@ -5,6 +5,8 @@ const commandLine = document.querySelector("#commandLine");
 const returnCode = document.querySelector("#returnCode");
 const lastQuery = document.querySelector("#lastQuery");
 const duration = document.querySelector("#duration");
+const addressList = document.querySelector("#addressList");
+const recordList = document.querySelector("#recordList");
 const statusBadge = document.querySelector("#statusBadge");
 const statusLabel = document.querySelector("#statusLabel");
 const statusText = document.querySelector("#statusText");
@@ -28,11 +30,58 @@ function payloadFromForm() {
   };
 }
 
+function renderAnswers(records = []) {
+  const addresses = records.filter((record) => record.address);
+
+  if (addresses.length === 0) {
+    addressList.innerHTML = "<span class=\"empty-line\">No A/AAAA address returned.</span>";
+  } else {
+    addressList.innerHTML = addresses
+      .map((record) => `<span class="address-chip">${record.address}</span>`)
+      .join("");
+  }
+
+  if (records.length === 0) {
+    recordList.innerHTML = "";
+    return;
+  }
+
+  recordList.innerHTML = `
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Value</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${records.map((record) => `
+          <tr>
+            <td>${escapeHtml(record.name)}</td>
+            <td>${escapeHtml(record.type)}</td>
+            <td>${escapeHtml(record.value)}</td>
+          </tr>
+        `).join("")}
+      </tbody>
+    </table>
+  `;
+}
+
+function escapeHtml(value) {
+  return String(value)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;");
+}
+
 function renderResult(data) {
   commandLine.textContent = data.command || "-";
   duration.textContent = `${data.duration_ms || 0} ms`;
   returnCode.textContent = String(data.returncode ?? "-");
   lastQuery.textContent = `${domainInput.value.trim()} ${typeInput.value.trim()}`;
+  renderAnswers(data.answers || []);
 
   const parts = [];
   if (data.stdout) {
@@ -52,6 +101,8 @@ form.addEventListener("submit", async (event) => {
   button.disabled = true;
   setStatus("running", "QUERYING");
   output.textContent = "Querying...";
+  addressList.innerHTML = "<span class=\"empty-line\">Waiting for answer...</span>";
+  recordList.innerHTML = "";
 
   try {
     const response = await fetch("/api/query", {
@@ -68,7 +119,8 @@ form.addEventListener("submit", async (event) => {
       command: "-",
       duration_ms: 0,
       returncode: "-",
-      stderr: error.message
+      stderr: error.message,
+      answers: []
     });
     setStatus("error", "FAILED");
   } finally {

@@ -62,6 +62,39 @@ def build_dig_command(payload):
     return cmd
 
 
+def parse_answer_records(stdout):
+    records = []
+    in_answer_section = False
+
+    for raw_line in stdout.splitlines():
+        line = raw_line.strip()
+        if line == ";; ANSWER SECTION:":
+            in_answer_section = True
+            continue
+        if in_answer_section and (not line or line.startswith(";;")):
+            break
+        if not in_answer_section or line.startswith(";"):
+            continue
+
+        parts = line.split()
+        if len(parts) < 5:
+            continue
+
+        name, ttl, dns_class, record_type = parts[:4]
+        value = " ".join(parts[4:])
+        record = {
+            "name": name,
+            "ttl": ttl,
+            "class": dns_class,
+            "type": record_type,
+            "value": value,
+            "address": value if record_type in {"A", "AAAA"} else "",
+        }
+        records.append(record)
+
+    return records
+
+
 class ClientHandler(SimpleHTTPRequestHandler):
     server_version = "DNSRelayClient/1.0"
 
@@ -116,6 +149,7 @@ class ClientHandler(SimpleHTTPRequestHandler):
                 "stdout": "",
                 "stderr": "dig timed out after 8 seconds",
                 "returncode": 124,
+                "answers": [],
             }
 
         duration_ms = int((time.perf_counter() - started) * 1000)
@@ -126,6 +160,7 @@ class ClientHandler(SimpleHTTPRequestHandler):
             "stdout": completed.stdout,
             "stderr": completed.stderr,
             "returncode": completed.returncode,
+            "answers": parse_answer_records(completed.stdout),
         }
 
     def send_json(self, status, data):
