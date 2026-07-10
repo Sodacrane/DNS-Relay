@@ -146,7 +146,7 @@ void process_client_query(int listen_sock,
     }
 
     if (local_block) {
-        // 0.0.0.0 规则表示拦截，返回 NXDOMAIN。
+        // 0.0.0.0 规则表示拦截，返回 NXDOMAIN/no such name，RCODE=0011。
         {
             std::lock_guard<std::mutex> lock(state.stats_mutex);
             ++state.stats.local_blocks;
@@ -158,11 +158,14 @@ void process_client_query(int listen_sock,
         send_client_response(listen_sock, response, packet.client_addr, packet.client_len);
         if (cfg.debug >= 1) {
             std::cerr << "[local-block] " << question.qname
-                      << " matched=" << matched_pattern << " -> NXDOMAIN\n";
+                      << " matched=" << matched_pattern
+                      << " -> NXDOMAIN no such name reply_code=0011\n";
         }
         write_threadsafe_log(state, "LOCAL_BLOCK client=" + sockaddr_to_string(packet.client_addr) +
                                     " name=" + question.qname +
                                     " matched=" + matched_pattern +
+                                    " result=\"no such name\"" +
+                                    " reply_code=0011" +
                                     " wildcard=" + std::to_string(wildcard_match));
         return;
     }
