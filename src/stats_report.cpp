@@ -100,43 +100,6 @@ void write_bar(std::ostream &out, const Metric &metric, uint64_t max_value) {
         << "</div>\n";
 }
 
-std::string event_kind(const std::string &event) {
-    if (event.rfind("LOCAL_BLOCK", 0) == 0 ||
-        event.rfind("BAD_QUERY", 0) == 0 ||
-        event.rfind("SERVFAIL", 0) == 0 ||
-        event.rfind("HOSTS_RELOAD_FAILED", 0) == 0 ||
-        event.rfind("CACHE_SAVE_FAILED", 0) == 0) {
-        return "danger";
-    }
-    if (event.rfind("RETRY", 0) == 0 ||
-        event.rfind("TIMEOUT", 0) == 0 ||
-        event.rfind("CACHE_EVICT", 0) == 0) {
-        return "warning";
-    }
-    if (event.rfind("CACHE_HIT", 0) == 0 ||
-        event.rfind("CACHE_STORE", 0) == 0 ||
-        event.rfind("CACHE_LOAD", 0) == 0) {
-        return "cache";
-    }
-    if (event.rfind("LOCAL_HIT", 0) == 0 ||
-        event.rfind("HOSTS_RELOAD", 0) == 0) {
-        return "local";
-    }
-    if (event.rfind("FORWARD", 0) == 0 ||
-        event.rfind("UPSTREAM_RESPONSE", 0) == 0) {
-        return "upstream";
-    }
-    return "neutral";
-}
-
-std::string event_label(const std::string &event) {
-    const std::size_t pos = event.find(' ');
-    if (pos == std::string::npos) {
-        return event;
-    }
-    return event.substr(0, pos);
-}
-
 } // namespace
 
 bool write_stats_report(const Stats &stats, const StatsReportInfo &info) {
@@ -176,9 +139,6 @@ bool write_stats_report(const Stats &stats, const StatsReportInfo &info) {
     for (const auto &metric : distribution) {
         max_value = std::max(max_value, metric.value);
     }
-
-    std::vector<std::string> events = info.recent_events;
-    std::reverse(events.begin(), events.end());
 
     out << "<!doctype html>\n"
         << "<html lang=\"en\">\n"
@@ -230,11 +190,6 @@ bool write_stats_report(const Stats &stats, const StatsReportInfo &info) {
         << ".bar-fill{height:100%;min-width:0;border-radius:999px;}.bar-count{text-align:right;font-variant-numeric:tabular-nums;color:#172033;font-weight:720;}\n"
         << ".kv{display:grid;grid-template-columns:118px 1fr;gap:8px 12px;font-size:13px;}\n"
         << ".kv dt{color:#667085;font-weight:700;}.kv dd{margin:0;color:#172033;word-break:break-word;}\n"
-        << ".events{display:grid;gap:8px;margin:0;padding:0;list-style:none;}\n"
-        << ".event{display:grid;grid-template-columns:88px 1fr;gap:10px;align-items:start;border-left:4px solid var(--event);background:#f8fafc;border-radius:6px;padding:9px 10px;}\n"
-        << ".event strong{font-size:12px;color:#172033;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}.event span{font-size:12px;color:#58667a;word-break:break-word;line-height:1.35;}\n"
-        << ".event.local{--event:#2f8f5b}.event.cache{--event:#2563eb}.event.upstream{--event:#b7791f}.event.warning{--event:#d97706}.event.danger{--event:#b91c1c}.event.neutral{--event:#64748b}\n"
-        << ".empty{font-size:13px;color:#667085;background:#f8fafc;border-radius:6px;padding:10px;}\n"
         << "@media(max-width:960px){body{padding:14px}.status-strip,.metrics,.main-grid,.group-grid,.flow-detail{grid-template-columns:1fr}.flow-path{grid-template-columns:1fr;}.arrow{height:24px;width:2px;margin:auto}.arrow:after{right:-4px;top:18px;border-left:5px solid transparent;border-right:5px solid transparent;border-top:8px solid #cbd5e1;border-bottom:0}.bar-row{grid-template-columns:116px 1fr 48px}header{align-items:flex-start;flex-direction:column}.header-side{justify-content:flex-start}.updated{text-align:left}}\n"
         << "</style>\n"
         << "</head>\n"
@@ -308,29 +263,11 @@ bool write_stats_report(const Stats &stats, const StatsReportInfo &info) {
         << "</dl></aside>\n"
         << "</section>\n";
 
-    out << "<section class=\"main-grid\">\n"
-        << "<div class=\"panel\"><h2>Request Distribution</h2>\n";
+    out << "<section class=\"panel\"><h2>Request Distribution</h2>\n";
     for (const auto &metric : distribution) {
         write_bar(out, metric, max_value);
     }
-    out << "</div>\n"
-        << "<aside class=\"panel\"><h2>Recent Events</h2>\n";
-
-    if (events.empty()) {
-        out << "<div class=\"empty\">No events yet</div>\n";
-    } else {
-        out << "<ol class=\"events\">\n";
-        for (const auto &event : events) {
-            const std::string kind = event_kind(event);
-            out << "<li class=\"event " << kind << "\"><strong>"
-                << html_escape(event_label(event)) << "</strong><span>"
-                << html_escape(event) << "</span></li>\n";
-        }
-        out << "</ol>\n";
-    }
-
-    out << "</aside>\n"
-        << "</section>\n"
+    out << "</section>\n"
         << "</main>\n"
         << "</body>\n"
         << "</html>\n";

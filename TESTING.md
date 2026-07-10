@@ -184,6 +184,7 @@ CACHE_HIT
 ```bash
 ./dnsrelay -dd -p 1053 --cache-capacity 2 --threads 4 114.114.114.114 dnsrelay.txt
 ```
+./dnsrelay -dd -p 1053 --threads 4 --cache-capacity 3 --cache-max-ttl 60 --retry-timeout 2 --retries 1 202.106.0.20 dnsrelay.txt
 
 终端 2 运行：
 
@@ -275,13 +276,13 @@ C:\Users\32741\Downloads\to students 2026\to students\code\stats\dashboard.html
   --retry-timeout 2 \
   --retries 1 \
   -l logs/retry-test.log \
-  192.0.2.1 dnsrelay.txt
+  10.3.9.254 dnsrelay.txt
 ```
 
 终端 2 只发送一次客户端查询：
 
 ```bash
-dig @127.0.0.1 -p 1053 www.example.com A +time=10 +tries=1
+dig @10.29.235.155 -p 1053 www.example.com A +time=10 +tries=1
 ```
 
 预期大约 2 秒后出现一次 `[retry]`，大约 4 秒后出现：
@@ -348,3 +349,45 @@ dns || udp.port == 1053
 | `www.bupt.com.cn` | 本地直接返回 A 记录 `114.255.40.66` |
 | `www.baidu.com` | 有 `1053` 客户端请求，也有 `53` 上游转发 |
 | 第二次 `www.cloudflare.com` | 应该只有本地 `1053` 响应，没有新的上游 `53` 查询 |
+
+
+
+
+SERVER=10.29.235.155
+RESULT_DIR="/tmp/dnsrelay-thread-$(date +%s)"
+mkdir -p "$RESULT_DIR"
+
+domains=(
+  www.baidu.com
+  www.cloudflare.com
+  www.qq.com
+  www.github.com
+  www.microsoft.com
+  www.wikipedia.org
+  www.bilibili.com
+  www.taobao.com
+  www.jd.com
+  www.sina.com.cn
+)
+
+for i in $(seq 1 50); do
+  name="${domains[$(( (i - 1) % ${#domains[@]} ))]}"
+
+  (
+    if dig @"$SERVER" -p 1053 "$name" A \
+         +time=5 +tries=1 +noall +answer \
+         > "$RESULT_DIR/$i.txt" 2>&1; then
+      touch "$RESULT_DIR/$i.ok"
+      echo "[$i] OK   $name"
+    else
+      touch "$RESULT_DIR/$i.fail"
+      echo "[$i] FAIL $name"
+    fi
+  ) &
+done
+
+wait
+
+echo "成功数量：$(find "$RESULT_DIR" -name '*.ok' | wc -l)"
+echo "失败数量：$(find "$RESULT_DIR" -name '*.fail' | wc -l)"
+echo "结果目录：$RESULT_DIR"
