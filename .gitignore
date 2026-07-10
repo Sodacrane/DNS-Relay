@@ -6,4 +6,6 @@ logs/*.log
 pcaps/*.pcap
 cache/*.cache
 stats/*.html
+__pycache__/
+*.pyc
 

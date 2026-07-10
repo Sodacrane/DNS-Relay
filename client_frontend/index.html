@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>DNS Relay Client</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <main class="shell">
+    <section class="toolbar">
+      <div>
+        <h1>DNS Relay Client</h1>
+        <p id="statusText">Ready</p>
+      </div>
+      <div class="status" id="statusBadge">
+        <span></span>
+        <b id="statusLabel">IDLE</b>
+      </div>
+    </section>
+
+    <section class="query-panel">
+      <form id="queryForm" autocomplete="off">
+        <div class="field">
+          <label for="server">Relay Server</label>
+          <input id="server" name="server" value="10.29.235.155" spellcheck="false" required>
+        </div>
+        <div class="field small">
+          <label for="port">Port</label>
+          <input id="port" name="port" value="1053" inputmode="numeric" required>
+        </div>
+        <div class="field wide">
+          <label for="domain">Domain</label>
+          <input id="domain" name="domain" value="www.baidu.com" spellcheck="false" required>
+        </div>
+        <div class="field small">
+          <label for="type">Type</label>
+          <select id="type" name="type">
+            <option>A</option>
+            <option>AAAA</option>
+            <option>CNAME</option>
+            <option>MX</option>
+            <option>NS</option>
+            <option>PTR</option>
+            <option>SOA</option>
+            <option>TXT</option>
+            <option>SRV</option>
+            <option>CAA</option>
+          </select>
+        </div>
+        <button type="submit" id="queryButton">Query</button>
+      </form>
+    </section>
+
+    <section class="result-grid">
+      <section class="result-panel">
+        <div class="panel-head">
+          <h2>Result</h2>
+          <span id="duration">0 ms</span>
+        </div>
+        <pre id="output">No query yet.</pre>
+      </section>
+      <aside class="side-panel">
+        <h2>Command</h2>
+        <pre id="commandLine">dig @10.29.235.155 -p 1053 www.baidu.com A +time=5 +tries=1</pre>
+        <dl>
+          <dt>Return code</dt>
+          <dd id="returnCode">-</dd>
+          <dt>Last query</dt>
+          <dd id="lastQuery">-</dd>
+        </dl>
+      </aside>
+    </section>
+  </main>
+  <script src="/static/app.js"></script>
+</body>
+</html>

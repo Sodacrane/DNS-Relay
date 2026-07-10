@@ -264,7 +264,43 @@ explorer.exe "$(wslpath -w stats/dashboard.html)"
 C:\Users\32741\Downloads\to students 2026\to students\code\stats\dashboard.html
 ```
 
-## 13. Wireshark 抓包测试
+## 13. 上游超时重试与 SERVFAIL 测试
+
+终端 1 使用不可达的文档测试地址作为上游 DNS：
+
+```bash
+./build/bin/dnsrelay -dd -p 1053 \
+  --retry-timeout 2 \
+  --retries 1 \
+  -l logs/retry-test.log \
+  192.0.2.1 dnsrelay.txt
+```
+
+终端 2 只发送一次客户端查询：
+
+```bash
+dig @127.0.0.1 -p 1053 www.example.com A +time=10 +tries=1
+```
+
+预期大约 2 秒后出现一次 `[retry]`，大约 4 秒后出现：
+
+```text
+[timeout] ... -> SERVFAIL
+```
+
+`dig` 应显示：
+
+```text
+status: SERVFAIL
+```
+
+检查日志：
+
+```bash
+grep -E 'RETRY|TIMEOUT|SERVFAIL' logs/retry-test.log
+```
+
+## 14. Wireshark 抓包测试
 
 终端 1 启动 DNS Relay：
 

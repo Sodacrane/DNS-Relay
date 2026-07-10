@@ -86,7 +86,7 @@ README_WSL.md
 The command format remains compatible with the teacher's PPT. This version also
 adds `-p` for WSL testing, `-l` for the log file, `--cache-file` for the persistent cache,
 cache TTL/capacity options, `--stats-file` for the visual statistics dashboard,
-and `--threads` for concurrent client query processing:
+`--threads` for concurrent client query processing, and timeout retry controls:
 
 ```bash
 dnsrelay [-d|-dd] [-p listen-port] [-l log-file]
@@ -94,6 +94,7 @@ dnsrelay [-d|-dd] [-p listen-port] [-l log-file]
          [--cache-min-ttl seconds] [--cache-max-ttl seconds]
          [--cache-capacity entries]
          [--stats-file file] [--no-stats] [--threads count]
+         [--retry-timeout seconds] [--retries count]
          [dns-server-ipaddr] [filename]
 ```
 
@@ -119,6 +120,11 @@ The main thread receives UDP packets and upstream responses. Client query
 processing is submitted to the worker pool. Shared runtime data such as the
 cache, forwarding table, statistics, log file, and hot-reloaded local database
 are protected by mutexes or shared locks.
+
+Forwarded queries wait 2 seconds for an upstream response and retry once by
+default. Configure the policy with `--retry-timeout` and `--retries`. If all
+attempts fail, the relay returns `SERVFAIL` to the original client instead of
+leaving it waiting for a silent timeout.
 
 The program writes query logs and final statistics to `logs/dnsrelay.log` by default.
 Use `--no-log` to disable logging.
@@ -218,6 +224,7 @@ This version adds several extension features that are useful for the report:
 - Query logs and statistics: each query is written to `logs/dnsrelay.log`; summary statistics print when the program exits.
 - Visual statistics dashboard: request counters and bar charts are written to `stats/dashboard.html`.
 - Thread pool concurrency: client DNS queries are processed by a fixed worker pool configured with `--threads`.
+- Upstream retry: timed-out queries are retried a bounded number of times and end with `SERVFAIL`.
 
 
 Test wildcard matching:
@@ -281,6 +288,22 @@ wait
 
 The relay terminal should show interleaved query handling while the dashboard
 and final statistics continue to count all request types.
+
+Test retry and final `SERVFAIL` with an unreachable documentation address:
+
+```bash
+./build/bin/dnsrelay -dd -p 1053 --retry-timeout 2 --retries 1 192.0.2.1 dnsrelay.txt
+```
+
+From another terminal:
+
+```bash
+dig @127.0.0.1 -p 1053 www.example.com A +time=10 +tries=1
+```
+
+The relay prints one `[retry]` line after about 2 seconds, then one `[timeout]`
+line and returns `status: SERVFAIL` after about 4 seconds. The log contains
+`RETRY`, `SERVFAIL`, and `TIMEOUT`.
 
 View logs:
 

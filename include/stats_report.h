@@ -5,6 +5,7 @@
 
 #include <cstddef>
 #include <string>
+#include <vector>
 
 namespace dnsrelay {
 
@@ -13,6 +14,7 @@ struct StatsReportInfo {
     Config config;
     std::size_t cache_entries = 0;
     std::size_t pending_queries = 0;
+    std::vector<std::string> recent_events;
 };
 
 // 把当前统计数据写成 HTML 页面，默认输出到 stats/dashboard.html。

@@ -35,8 +35,6 @@
 namespace dnsrelay {
 namespace {
 
-constexpr int FORWARD_TIMEOUT_SECONDS = 10;
-
 volatile std::sig_atomic_t g_running = 1;
 
 // Ctrl+C 或终止信号会把主循环标志置为 0，让程序走正常清理流程。
@@ -120,7 +118,9 @@ void print_stats(const Stats &stats, std::ostream &out) {
         << " forwarded=" << stats.forwarded
         << " upstream_responses=" << stats.upstream_responses
         << " bad_queries=" << stats.bad_queries
-        << " timeouts=" << stats.timeouts;
+        << " retries=" << stats.retries
+        << " timeouts=" << stats.timeouts
+        << " servfail_responses=" << stats.servfail_responses;
 }
 
 // DNS Relay 主入口：初始化资源、进入 select 主循环、退出时清理资源。
@@ -158,7 +158,7 @@ int run_relay(const Config &cfg) {
     }
 
     // SharedState 保存所有运行期共享数据：本地表、缓存、转发表、统计和日志。
-    SharedState state(std::move(loaded_records), cfg, FORWARD_TIMEOUT_SECONDS);
+    SharedState state(std::move(loaded_records), cfg);
 
     if (cfg.logging) {
         const std::filesystem::path log_path(cfg.log_file);
@@ -182,7 +182,9 @@ int run_relay(const Config &cfg) {
                                         " cache_min_ttl=" + std::to_string(cfg.cache_min_ttl) +
                                         " cache_max_ttl=" + std::to_string(cfg.cache_max_ttl) +
                                         " cache_capacity=" + std::to_string(cfg.cache_capacity) +
-                                        " threads=" + std::to_string(cfg.thread_count));
+                                        " threads=" + std::to_string(cfg.thread_count) +
+                                        " retry_timeout=" + std::to_string(cfg.retry_timeout_seconds) +
+                                        " max_retries=" + std::to_string(cfg.max_retries));
         }
     }
 
@@ -220,7 +222,9 @@ int run_relay(const Config &cfg) {
               << ", cache capacity " << cfg.cache_capacity
               << ", cache ttl clamp [" << cfg.cache_min_ttl
               << ", " << cfg.cache_max_ttl << "]"
-              << ", worker threads " << cfg.thread_count << "\n";
+              << ", worker threads " << cfg.thread_count
+              << ", retry timeout " << cfg.retry_timeout_seconds << "s"
+              << ", retries " << cfg.max_retries << "\n";
 
     {
         std::shared_lock<std::shared_mutex> lock(state.local_records_mutex);
@@ -229,7 +233,6 @@ int run_relay(const Config &cfg) {
 
     std::size_t loaded_cache_entries = 0;
     {
-        std::lock_guard<std::mutex> lock(state.cache_mutex);
         // 启动时把未过期的持久化缓存读入内存。
         loaded_cache_entries = state.cache.load();
     }
@@ -250,6 +253,7 @@ int run_relay(const Config &cfg) {
         info.config = cfg;
         info.cache_entries = cache_entry_count(state);
         info.pending_queries = pending_query_count(state);
+        info.recent_events = snapshot_recent_events(state);
         return info;
     };
 
@@ -271,25 +275,66 @@ int run_relay(const Config &cfg) {
     auto next_stats_refresh = std::chrono::steady_clock::now() + std::chrono::seconds(1);
 
     while (g_running) {
-        std::vector<ForwardTimeout> expired;
+        ForwardSweep due;
         {
             std::lock_guard<std::mutex> lock(state.pending_mutex);
             // 清理转发给上游后长时间没有响应的请求。
-            expired = state.pending.cleanup_expired();
+            due = state.pending.collect_due();
         }
 
-        bool stats_changed = !expired.empty();
-        if (!expired.empty()) {
+        bool stats_changed = !due.retries.empty() || !due.expired.empty();
+        for (const auto &item : due.retries) {
+            std::vector<uint8_t> retry_packet = item.query;
+            set_u16(retry_packet.data(), item.forward_id);
+            const ssize_t sent = sendto(upstream_sock,
+                                        retry_packet.data(),
+                                        retry_packet.size(),
+                                        0,
+                                        reinterpret_cast<const sockaddr *>(&upstream_addr),
+                                        sizeof(upstream_addr));
+            if (sent >= 0) {
+                std::lock_guard<std::mutex> lock(state.stats_mutex);
+                ++state.stats.retries;
+            }
+            if (cfg.debug >= 1) {
+                std::cerr << "[retry] id=" << item.forward_id
+                          << " name=" << item.question.qname
+                          << " attempt=" << item.retries_done << "/" << cfg.max_retries
+                          << (sent >= 0 ? "" : " send-failed") << "\n";
+            }
+            write_threadsafe_log(state, "RETRY name=" + item.question.qname +
+                                        " upstream_id=" + std::to_string(item.forward_id) +
+                                        " attempt=" + std::to_string(item.retries_done) +
+                                        " sent=" + std::to_string(sent >= 0));
+        }
+
+        if (!due.expired.empty()) {
             {
                 std::lock_guard<std::mutex> lock(state.stats_mutex);
-                state.stats.timeouts += expired.size();
+                state.stats.timeouts += due.expired.size();
+                state.stats.servfail_responses += due.expired.size();
             }
-            for (const auto &item : expired) {
+            for (const auto &item : due.expired) {
+                const auto response = make_error_response(item.query.data(),
+                                                          item.query.size(),
+                                                          item.question,
+                                                          2);
+                sendto(listen_sock,
+                       response.data(),
+                       response.size(),
+                       0,
+                       reinterpret_cast<const sockaddr *>(&item.client_addr),
+                       item.client_len);
                 if (cfg.debug >= 1) {
-                    std::cerr << "[timeout] id=" << item.forward_id << " name=" << item.qname << "\n";
+                    std::cerr << "[timeout] id=" << item.forward_id
+                              << " name=" << item.question.qname
+                              << " -> SERVFAIL\n";
                 }
+                write_threadsafe_log(state, "SERVFAIL name=" + item.question.qname +
+                                            " upstream_id=" + std::to_string(item.forward_id) +
+                                            " reason=upstream_timeout");
             }
-            write_threadsafe_log(state, "TIMEOUT count=" + std::to_string(expired.size()));
+            write_threadsafe_log(state, "TIMEOUT count=" + std::to_string(due.expired.size()));
         }
 
         fd_set readfds;
@@ -366,9 +411,14 @@ int run_relay(const Config &cfg) {
         print_stats(final_stats, oss);
         write_threadsafe_log(state, "STOP " + oss.str());
     }
+    CacheSnapshot final_cache_snapshot;
     {
         std::lock_guard<std::mutex> lock(state.cache_mutex);
-        state.cache.save();
+        final_cache_snapshot = state.cache.snapshot();
+    }
+    if (!ResponseCache::save_snapshot(final_cache_snapshot)) {
+        std::cerr << "Warning: cannot save cache file "
+                  << final_cache_snapshot.filename << "\n";
     }
     refresh_stats_report();
     close(listen_sock);

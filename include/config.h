@@ -26,6 +26,8 @@ struct Config {
     uint32_t cache_max_ttl = std::numeric_limits<uint32_t>::max();
     std::size_t cache_capacity = 1024;
     std::size_t thread_count = 4;
+    uint32_t retry_timeout_seconds = 2;
+    uint32_t max_retries = 1;
 };
 
 // 打印帮助信息，并把 argc/argv 解析到 Config。

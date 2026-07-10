@@ -20,6 +20,17 @@ struct CacheEntry {
     std::list<std::string>::iterator lru_it;
 };
 
+struct CacheDiskEntry {
+    std::time_t expires_at = 0;
+    std::vector<uint8_t> response;
+};
+
+struct CacheSnapshot {
+    std::string filename;
+    bool persistent = false;
+    std::vector<CacheDiskEntry> entries;
+};
+
 // DNS 响应缓存：缓存上游返回的完整响应包，支持 TTL 过期、容量限制和文件持久化。
 class ResponseCache {
 public:
@@ -34,6 +45,8 @@ public:
     // 启动时从缓存文件加载未过期记录，退出或更新缓存时保存到文件。
     std::size_t load();
     bool save() const;
+    CacheSnapshot snapshot() const;
+    static bool save_snapshot(const CacheSnapshot &snapshot);
 
     // 查询缓存；命中时会把响应包 ID 改成本次客户端请求的 ID。
     bool get(const Question &question,

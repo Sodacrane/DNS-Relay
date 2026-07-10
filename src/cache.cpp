@@ -150,24 +150,23 @@ std::size_t ResponseCache::load() {
 
     enforce_capacity();
     loaded = entries_.size();
-    save();
     return loaded;
 }
 
 // 把当前未过期缓存写回文件；LRU 新记录优先写在前面。
 bool ResponseCache::save() const {
-    if (!persistent_ || filename_.empty()) {
-        return true;
-    }
+    return save_snapshot(snapshot());
+}
 
-    create_parent_directory(filename_);
-    std::ofstream out(filename_, std::ios::trunc);
-    if (!out) {
-        return false;
+CacheSnapshot ResponseCache::snapshot() const {
+    CacheSnapshot snapshot;
+    snapshot.filename = filename_;
+    snapshot.persistent = persistent_;
+    if (!persistent_ || filename_.empty()) {
+        return snapshot;
     }
 
     const std::time_t now = std::time(nullptr);
-    out << CACHE_MAGIC << "\n";
     for (auto lru_it = lru_keys_.rbegin(); lru_it != lru_keys_.rend(); ++lru_it) {
         const auto kv = entries_.find(*lru_it);
         if (kv == entries_.end()) {
@@ -176,9 +175,35 @@ bool ResponseCache::save() const {
         if (kv->second.expires_at <= now || kv->second.response.empty()) {
             continue;
         }
-        out << static_cast<long long>(kv->second.expires_at)
+
+        CacheDiskEntry entry;
+        entry.expires_at = kv->second.expires_at;
+        entry.response = kv->second.response;
+        snapshot.entries.push_back(std::move(entry));
+    }
+
+    return snapshot;
+}
+
+bool ResponseCache::save_snapshot(const CacheSnapshot &snapshot) {
+    if (!snapshot.persistent || snapshot.filename.empty()) {
+        return true;
+    }
+
+    create_parent_directory(snapshot.filename);
+    std::ofstream out(snapshot.filename, std::ios::trunc);
+    if (!out) {
+        return false;
+    }
+
+    out << CACHE_MAGIC << "\n";
+    for (const auto &entry : snapshot.entries) {
+        if (entry.response.empty()) {
+            continue;
+        }
+        out << static_cast<long long>(entry.expires_at)
             << " "
-            << hex_encode(kv->second.response)
+            << hex_encode(entry.response)
             << "\n";
     }
     return true;
@@ -199,7 +224,6 @@ bool ResponseCache::get(const Question &question,
     response = it->second.response;
     if (!refresh_cached_response(response, it->second.expires_at)) {
         erase_entry(it);
-        save();
 
         return false;
     }
@@ -233,7 +257,6 @@ uint32_t ResponseCache::store(const std::string &qname,
     entry.expires_at = std::time(nullptr) + static_cast<std::time_t>(cache_ttl);
     insert_entry(cache_key(qname, qtype, qclass), std::move(entry));
     enforce_capacity();
-    save();
 
     return cache_ttl;
 }

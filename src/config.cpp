@@ -16,6 +16,7 @@ void print_usage(const char *program) {
         << "       [--cache-file file] [--no-cache-file] [--cache-min-ttl seconds]\n"
         << "       [--cache-max-ttl seconds] [--cache-capacity entries]\n"
         << "       [--stats-file file] [--no-stats] [--threads count]\n"
+        << "       [--retry-timeout seconds] [--retries count]\n"
         << "       [dns-server-ipaddr] [filename]\n"
         << "Example for normal DNS port: sudo " << program << " -d 114.114.114.114 dnsrelay.txt\n"
         << "Example for WSL test port:   " << program << " -dd -p 1053 114.114.114.114 dnsrelay.txt\n"
@@ -104,6 +105,24 @@ bool parse_args(int argc, char **argv, Config &cfg) {
                 return false;
             }
             cfg.thread_count = threads;
+            continue;
+        }
+        if (arg == "--retry-timeout") {
+            uint32_t seconds = 0;
+            if (i + 1 >= argc || !parse_u32(argv[++i], seconds) || seconds == 0 || seconds > 60) {
+                std::cerr << "Invalid retry timeout. Use a value from 1 to 60 seconds.\n";
+                return false;
+            }
+            cfg.retry_timeout_seconds = seconds;
+            continue;
+        }
+        if (arg == "--retries") {
+            uint32_t retries = 0;
+            if (i + 1 >= argc || !parse_u32(argv[++i], retries) || retries > 10) {
+                std::cerr << "Invalid retry count. Use a value from 0 to 10.\n";
+                return false;
+            }
+            cfg.max_retries = retries;
             continue;
         }
         if (arg == "--no-log") {

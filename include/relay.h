@@ -18,7 +18,9 @@ struct Stats {
     uint64_t forwarded = 0;
     uint64_t upstream_responses = 0;
     uint64_t bad_queries = 0;
+    uint64_t retries = 0;
     uint64_t timeouts = 0;
+    uint64_t servfail_responses = 0;
 };
 
 // 主程序入口：根据 Config 启动 DNS Relay 主循环。

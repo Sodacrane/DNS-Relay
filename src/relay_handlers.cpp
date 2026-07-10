@@ -225,7 +225,12 @@ void process_client_query(int listen_sock,
     try {
         // 转发前重新分配 DNS ID，并记录原 ID 和客户端地址。
         std::lock_guard<std::mutex> lock(state.pending_mutex);
-        forward_id = state.pending.add(original_id, packet.client_addr, packet.client_len, question);
+        forward_id = state.pending.add(original_id,
+                                       packet.client_addr,
+                                       packet.client_len,
+                                       question,
+                                       buffer,
+                                       n);
     } catch (const std::exception &ex) {
         std::cerr << ex.what() << "\n";
         return;
@@ -293,6 +298,8 @@ void handle_upstream_packet(int listen_sock,
     uint32_t ttl = 0;
     uint32_t cache_ttl = 0;
     std::size_t cache_evictions = 0;
+    CacheSnapshot cache_snapshot;
+    bool should_save_cache = false;
     const uint16_t rcode = read_u16(buffer + 2) & 0x000f;
     const uint16_t ancount = read_u16(buffer + 6);
     if (rcode == 0 && ancount > 0 && extract_min_answer_ttl(buffer, static_cast<std::size_t>(n), ttl)) {
@@ -300,29 +307,39 @@ void handle_upstream_packet(int listen_sock,
         {
             std::lock_guard<std::mutex> lock(state.cache_mutex);
             const std::size_t evictions_before = state.cache.eviction_count();
-            cache_ttl = state.cache.store(item.qname,
-                                          item.qtype,
-                                          item.qclass,
+            cache_ttl = state.cache.store(item.question.qname,
+                                          item.question.qtype,
+                                          item.question.qclass,
                                           buffer,
                                           static_cast<std::size_t>(n),
                                           ttl);
             cache_evictions = state.cache.eviction_count() - evictions_before;
+            if (cache_ttl > 0) {
+                cache_snapshot = state.cache.snapshot();
+                should_save_cache = true;
+            }
+        }
+        if (should_save_cache && !ResponseCache::save_snapshot(cache_snapshot)) {
+            if (cfg.debug >= 1) {
+                std::cerr << "[cache-save-failed] " << cache_snapshot.filename << "\n";
+            }
+            write_threadsafe_log(state, "CACHE_SAVE_FAILED file=" + cache_snapshot.filename);
         }
         if (cache_evictions > 0) {
             std::lock_guard<std::mutex> lock(state.stats_mutex);
             state.stats.cache_evictions += cache_evictions;
         }
         if (cache_ttl > 0 && cfg.debug >= 1) {
-            std::cerr << "[cache-store] " << item.qname
+            std::cerr << "[cache-store] " << item.question.qname
                       << " upstream-ttl=" << ttl
                       << " cache-ttl=" << cache_ttl << "s\n";
         }
         if (cache_ttl > 0) {
-            write_threadsafe_log(state, "CACHE_STORE name=" + item.qname +
+            write_threadsafe_log(state, "CACHE_STORE name=" + item.question.qname +
                                         " upstream_ttl=" + std::to_string(ttl) +
                                         " cache_ttl=" + std::to_string(cache_ttl));
         } else {
-            write_threadsafe_log(state, "CACHE_SKIP name=" + item.qname +
+            write_threadsafe_log(state, "CACHE_SKIP name=" + item.question.qname +
                                         " upstream_ttl=" + std::to_string(ttl));
         }
         if (cache_evictions > 0) {
@@ -359,10 +376,10 @@ void handle_upstream_packet(int listen_sock,
     if (cfg.debug >= 1) {
         std::cerr << "[response] upstream-id=" << forward_id
                   << " client-id=" << item.original_id
-                  << " name=" << item.qname
+                  << " name=" << item.question.qname
                   << " rcode=" << rcode << "\n";
     }
-    write_threadsafe_log(state, "UPSTREAM_RESPONSE name=" + item.qname +
+    write_threadsafe_log(state, "UPSTREAM_RESPONSE name=" + item.question.qname +
                                 " upstream_id=" + std::to_string(forward_id) +
                                 " rcode=" + std::to_string(rcode) +
                                 " answers=" + std::to_string(ancount));

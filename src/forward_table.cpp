@@ -2,20 +2,22 @@
 
 #include <limits>
 #include <stdexcept>
+#include <utility>
 
 namespace dnsrelay {
 
-// next_id_ 从当前时间低 16 位开始，减少程序重启后立即复用同一批 ID 的概率。
-ForwardTable::ForwardTable(int timeout_seconds)
+ForwardTable::ForwardTable(int timeout_seconds, uint32_t max_retries)
     : timeout_seconds_(timeout_seconds),
+      max_retries_(max_retries),
       next_id_(static_cast<uint16_t>(std::time(nullptr) & 0xffff)) {
 }
 
-// 转发前记录客户端原始 ID、客户端地址和查询信息，并分配新的上游 ID。
 uint16_t ForwardTable::add(uint16_t original_id,
                            const sockaddr_storage &client_addr,
                            socklen_t client_len,
-                           const Question &question) {
+                           const Question &question,
+                           const uint8_t *query,
+                           std::size_t query_len) {
     const uint16_t forward_id = allocate_id();
 
     ForwardItem item;
@@ -24,22 +26,20 @@ uint16_t ForwardTable::add(uint16_t original_id,
     item.client_addr = client_addr;
     item.client_len = client_len;
     item.created_at = std::time(nullptr);
-    item.qname = question.qname;
-    item.qtype = question.qtype;
-    item.qclass = question.qclass;
-    items_[forward_id] = item;
+    item.question = question;
+    item.query.assign(query, query + query_len);
+    items_[forward_id] = std::move(item);
 
     return forward_id;
 }
 
-// 上游响应回来后按 forward_id 找回原请求；取出后删除，表示请求完成。
 bool ForwardTable::pop(uint16_t forward_id, ForwardItem &item) {
     auto it = items_.find(forward_id);
     if (it == items_.end()) {
         return false;
     }
 
-    item = it->second;
+    item = std::move(it->second);
     items_.erase(it);
     return true;
 }
@@ -48,28 +48,34 @@ void ForwardTable::erase(uint16_t forward_id) {
     items_.erase(forward_id);
 }
 
-// 定期清理长时间没有收到上游响应的请求，避免 pending 表无限增长。
-std::vector<ForwardTimeout> ForwardTable::cleanup_expired() {
+ForwardSweep ForwardTable::collect_due() {
     const std::time_t now = std::time(nullptr);
-    std::vector<ForwardTimeout> expired;
+    ForwardSweep due;
 
     for (auto it = items_.begin(); it != items_.end();) {
-        if (now - it->second.created_at > timeout_seconds_) {
-            expired.push_back({it->first, it->second.qname});
-            it = items_.erase(it);
-        } else {
+        if (now - it->second.created_at < timeout_seconds_) {
             ++it;
+            continue;
+        }
+
+        if (it->second.retries_done < max_retries_) {
+            ++it->second.retries_done;
+            it->second.created_at = now;
+            due.retries.push_back(it->second);
+            ++it;
+        } else {
+            due.expired.push_back(std::move(it->second));
+            it = items_.erase(it);
         }
     }
 
-    return expired;
+    return due;
 }
 
 std::size_t ForwardTable::size() const {
     return items_.size();
 }
 
-// 分配一个当前未使用的 16 位 DNS ID；最多尝试完整 ID 空间一圈。
 uint16_t ForwardTable::allocate_id() {
     for (int i = 0; i <= std::numeric_limits<uint16_t>::max(); ++i) {
         const uint16_t candidate = next_id_++;

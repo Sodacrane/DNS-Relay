@@ -2,6 +2,7 @@ CXX ?= g++
 CXXFLAGS ?= -std=c++17 -Wall -Wextra -O2 -pthread -Iinclude
 DEPFLAGS := -MMD -MP
 TARGET_NAME := dnsrelay
+ROOT_TARGET := dnsrelay
 BUILD_DIR := build
 BIN_DIR := $(BUILD_DIR)/bin
 OBJ_DIR := $(BUILD_DIR)/obj
@@ -13,10 +14,13 @@ DEP := $(patsubst src/%.cpp,$(DEP_DIR)/%.d,$(SRC))
 
 .PHONY: all clean run test-port
 
-all: $(TARGET)
+all: $(TARGET) $(ROOT_TARGET)
 
 $(TARGET): $(OBJ) | $(BIN_DIR)
 	$(CXX) $(CXXFLAGS) -o $@ $^
+
+$(ROOT_TARGET): $(TARGET)
+	cp $< $@
 
 $(OBJ_DIR)/%.o: src/%.cpp | $(OBJ_DIR) $(DEP_DIR)
 	$(CXX) $(CXXFLAGS) $(DEPFLAGS) -MF $(DEP_DIR)/$*.d -c -o $@ $<
