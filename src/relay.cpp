@@ -35,6 +35,8 @@
 namespace dnsrelay {
 namespace {
 
+constexpr int CACHE_SAVE_INTERVAL_SECONDS = 10;
+
 volatile std::sig_atomic_t g_running = 1;
 
 // Ctrl+C 或终止信号会把主循环标志置为 0，让程序走正常清理流程。
@@ -266,6 +268,33 @@ int run_relay(const Config &cfg) {
         }
     };
 
+    // 缓存写入只标记 dirty；这里定期复制快照，并在释放缓存锁后落盘。
+    auto save_dirty_cache = [&]() {
+        CacheSnapshot cache_snapshot;
+        bool should_save = false;
+        {
+            std::lock_guard<std::mutex> lock(state.cache_mutex);
+            if (state.cache_dirty) {
+                cache_snapshot = state.cache.snapshot();
+                state.cache_dirty = false;
+                should_save = true;
+            }
+        }
+
+        if (!should_save) {
+            return;
+        }
+
+        if (!ResponseCache::save_snapshot(cache_snapshot)) {
+            if (cfg.debug >= 1) {
+                std::cerr << "[cache-save-failed] " << cache_snapshot.filename << "\n";
+            }
+            write_threadsafe_log(state, "CACHE_SAVE_FAILED file=" + cache_snapshot.filename);
+            std::lock_guard<std::mutex> lock(state.cache_mutex);
+            state.cache_dirty = true;
+        }
+    };
+
     refresh_stats_report();
 
     ThreadPool thread_pool(cfg.thread_count);
@@ -273,6 +302,7 @@ int run_relay(const Config &cfg) {
 
     auto next_hosts_reload_check = std::chrono::steady_clock::now() + std::chrono::seconds(1);
     auto next_stats_refresh = std::chrono::steady_clock::now() + std::chrono::seconds(1);
+    auto next_cache_save = std::chrono::steady_clock::now() + std::chrono::seconds(CACHE_SAVE_INTERVAL_SECONDS);
 
     while (g_running) {
         ForwardSweep due;
@@ -389,6 +419,11 @@ int run_relay(const Config &cfg) {
             // 上游 DNS 返回响应：主线程恢复 ID、更新缓存并回发客户端。
             handle_upstream_packet(listen_sock, upstream_sock, cfg, state);
             stats_changed = true;
+        }
+
+        if (now >= next_cache_save) {
+            save_dirty_cache();
+            next_cache_save = now + std::chrono::seconds(CACHE_SAVE_INTERVAL_SECONDS);
         }
 
         if (stats_changed || now >= next_stats_refresh) {

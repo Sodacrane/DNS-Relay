@@ -22,6 +22,7 @@ struct SharedState {
 
     LocalDatabase local_records;
     ResponseCache cache;
+    bool cache_dirty = false;
     ForwardTable pending;
     Stats stats;
     std::ofstream log;

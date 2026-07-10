@@ -298,8 +298,6 @@ void handle_upstream_packet(int listen_sock,
     uint32_t ttl = 0;
     uint32_t cache_ttl = 0;
     std::size_t cache_evictions = 0;
-    CacheSnapshot cache_snapshot;
-    bool should_save_cache = false;
     const uint16_t rcode = read_u16(buffer + 2) & 0x000f;
     const uint16_t ancount = read_u16(buffer + 6);
     if (rcode == 0 && ancount > 0 && extract_min_answer_ttl(buffer, static_cast<std::size_t>(n), ttl)) {
@@ -314,16 +312,9 @@ void handle_upstream_packet(int listen_sock,
                                           static_cast<std::size_t>(n),
                                           ttl);
             cache_evictions = state.cache.eviction_count() - evictions_before;
-            if (cache_ttl > 0) {
-                cache_snapshot = state.cache.snapshot();
-                should_save_cache = true;
+            if (cache_ttl > 0 && cfg.persistent_cache) {
+                state.cache_dirty = true;
             }
-        }
-        if (should_save_cache && !ResponseCache::save_snapshot(cache_snapshot)) {
-            if (cfg.debug >= 1) {
-                std::cerr << "[cache-save-failed] " << cache_snapshot.filename << "\n";
-            }
-            write_threadsafe_log(state, "CACHE_SAVE_FAILED file=" + cache_snapshot.filename);
         }
         if (cache_evictions > 0) {
             std::lock_guard<std::mutex> lock(state.stats_mutex);
