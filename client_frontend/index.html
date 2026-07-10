@@ -23,7 +23,7 @@
       <form id="queryForm" autocomplete="off">
         <div class="field">
           <label for="server">Relay Server</label>
-          <input id="server" name="server" value="10.29.235.155" spellcheck="false" required>
+          <input id="server" name="server" value="127.0.0.1" spellcheck="false" required>
         </div>
         <div class="field small">
           <label for="port">Port</label>
@@ -71,7 +71,7 @@
 
         <section class="command-summary">
           <h2>Command</h2>
-          <pre id="commandLine">dig @10.29.235.155 -p 1053 www.baidu.com A +time=5 +tries=1</pre>
+          <pre id="commandLine">dig @127.0.0.1 -p 1053 www.baidu.com A +time=5 +tries=1</pre>
           <dl>
             <dt>Return code</dt>
             <dd id="returnCode">-</dd>

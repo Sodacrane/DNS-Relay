@@ -15,6 +15,14 @@ const portInput = document.querySelector("#port");
 const domainInput = document.querySelector("#domain");
 const typeInput = document.querySelector("#type");
 
+function defaultRelayServer() {
+  const host = window.location.hostname;
+  if (!host || host === "localhost") {
+    return "127.0.0.1";
+  }
+  return host;
+}
+
 function setStatus(kind, text) {
   statusBadge.className = `status ${kind}`;
   statusLabel.textContent = text;
@@ -28,6 +36,15 @@ function payloadFromForm() {
     domain: domainInput.value.trim(),
     type: typeInput.value.trim()
   };
+}
+
+function renderCommandPreview() {
+  const payload = payloadFromForm();
+  const server = payload.server || "127.0.0.1";
+  const port = payload.port || "1053";
+  const domain = payload.domain || "www.baidu.com";
+  const qtype = payload.type || "A";
+  commandLine.textContent = `dig @${server} -p ${port} ${domain} ${qtype} +time=5 +tries=1`;
 }
 
 function renderAnswers(records = []) {
@@ -126,4 +143,12 @@ form.addEventListener("submit", async (event) => {
   } finally {
     button.disabled = false;
   }
+});
+
+serverInput.value = defaultRelayServer();
+renderCommandPreview();
+
+[serverInput, portInput, domainInput, typeInput].forEach((control) => {
+  control.addEventListener("input", renderCommandPreview);
+  control.addEventListener("change", renderCommandPreview);
 });
